@@ -1,5 +1,8 @@
 ---
 params:
+  pheno_name:
+    label: Phenotype
+    value: Ins_tAUC
   coefType:
     choices:
     - coef
@@ -9,16 +12,26 @@ params:
     value: coef
   dataSetup:
     choices:
+    - dataJax.R
     - dataMadison.R
     - dataJaxMadison.R
-    - dataJax.R
     input: select
     label: Data setup file
     value: dataJax.R
-  datapath:
+  docTitle:
+    label: Document title
+    value: Mediation Scan
+  snpScan:
+    input: numeric
+    label: Width for SNP scan (0 = whole chromosome)
+    value: 10
+  offset:
+    label: Offset width for fine mapping
+    value: 2
+  resultpath:
     input: text
-    label: Path to derived data (required)
-    value: ..
+    label: Path to put CSV results (none if '')
+    value: '.'
   docAuthor:
     label: Author
     value: '[Brian S Yandell](brian.yandell@wisc.edu)'
@@ -30,26 +43,13 @@ params:
     input: select
     label: Output format
     value: html_document
-  docTitle:
-    label: Document title
-    value: Mediation Scan
+  datapath:
+    input: text
+    label: Path to derived data (required for Madison)
+    value: ..
   extraSteps:
     label: Exra steps file (optional)
     value: ''
-  offset:
-    label: Offset width for fine mapping
-    value: 2
-  pheno_name:
-    label: Phenotype
-    value: Ins_tAUC
-  resultpath:
-    input: text
-    label: Path to put CSV results (not used yet)
-    value: '.'
-  snpScan:
-    input: numeric
-    label: Width for SNP scan (0 = whole chromosome)
-    value: 10
 ---
 
 ---
@@ -145,7 +145,8 @@ med_scan <- intermediate::mediation_scan(target   = pheno_data[,pheno_name,drop=
                       covar    = addcovar,
                       driver = ap,
                       method = "double-lod-diff")
-ggplotly(autoplot(med_scan))
+ggplotly(autoplot(med_scan) +
+           ggtitle(pheno_name))
 ```
 
 ```{r}
@@ -321,8 +322,8 @@ med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=
                        covar    = addcovar,
                        driver = sp,
                        method = "double-lod-diff")
-plotly(autoplot(med2_scan) +
-  ggtitle(pheno_name))
+ggplotly(autoplot(med2_scan) +
+           ggtitle(pheno_name))
 ```
 
 ```{r}
@@ -344,7 +345,7 @@ med2_test <- intermediate::mediation_test(
   covar_tar = covar,
   covar_med = covar,
   driver = sp)
-plotly(autoplot(med2_test))
+ggplotly(autoplot(med2_test))
 ```
 
 ```{r}
