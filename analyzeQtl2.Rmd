@@ -167,6 +167,7 @@ med_test <- intermediate::mediation_test(
   annotation = mrna$annot,
   covar_tar = covar,
   covar_med = covar,
+  kinship = kinship[[chr_id]],
   driver = ap)
 ggplotly(autoplot(med_test))
 ```
@@ -344,6 +345,7 @@ med2_test <- intermediate::mediation_test(
   annotation = mrna$annot,
   covar_tar = covar,
   covar_med = covar,
+  kinship = kinship[[chr_id]],
   driver = sp)
 ggplotly(autoplot(med2_test))
 ```
