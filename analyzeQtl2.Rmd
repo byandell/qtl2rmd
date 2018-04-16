@@ -14,7 +14,7 @@ params:
     - dataJax.R
     input: select
     label: Data setup file
-    value: dataMadison.R
+    value: dataJax.R
   datapath:
     input: text
     label: Path to derived data (required)
