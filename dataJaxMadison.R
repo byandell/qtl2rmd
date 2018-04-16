@@ -4,6 +4,7 @@
 ## See dataMadison.R for alternative
 
 # Load Attie data.
+cat("load Attie data\n", file = stderr())
 load("~/Documents/Research/attie_alan/DO/AttieDOv2/DerivedData/Attie_islet_secr_data_v1.Rdata")
 
 pheno_data <- pheno
@@ -15,6 +16,7 @@ kinship <- K
 #############################################################################
 
 ## Query functions
+cat("query functions\n", file = stderr())
 
 ## Set up SNP variant query functions.
 
@@ -58,26 +60,29 @@ create_gene_query_func_AH <- function(pattern = c("ensembl", "gtf", "mus musculu
     ensembl[subset_ensembl,]
   }
 }
+cat("AnnotationHub call\n", file = stderr())
 query_gene_AH <- create_gene_query_func_AH()
 
 ## Combined query
 
+cat("combined query\n", file = stderr())
 query_gene <- function(chr, start = NULL, end = NULL) {
+  chr <- as.character(chr)
   MGI <- query_gene_MGI(chr, start, end)
   AH <- query_gene_AH(chr, start, end)
-  ts = ts %>% 
-  dplyr::select(
-    dplyr::left_join(
-      MGI,
+  dplyr::left_join(
+    MGI,
+    dplyr::rename(
       dplyr::select(
         AH, 
-        ensembl_gene, symbol)),
-    snp_id, chr, pos, alleles, ensembl_gene, symbol, consequence:lod)
+        ensembl_gene, symbol),
+      Name = "symbol"),
+    by = "Name")
 }
 
 ## List environment for query_gene
 
-ls.str(environment(query_gene))
+#print(ls.str(environment(query_gene)))
 
 ## Query genoprobs
 
@@ -108,7 +113,10 @@ query_mrna <- function(chr = NULL, start = NULL, end = NULL) {
     cat("need to supply chr\n", file = stderr())
     return(NULL)
   }
-  annot <- annot.mrna[annot.mrna$chr == chr, ]
+  annot <- 
+    dplyr::rename(
+      annot.mrna[annot.mrna$chr == chr, ],
+      pos = "middle_point")     
   list(expr = expr.mrna[, annot$id],
        annot = annot)
 }

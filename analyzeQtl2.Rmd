@@ -17,7 +17,7 @@ params:
     - dataJaxMadison.R
     input: select
     label: Data setup file
-    value: dataJax.R
+    value: dataJaxMadison.R
   docTitle:
     label: Document title
     value: Mediation Scan
@@ -47,6 +47,9 @@ params:
     input: text
     label: Path to derived data (required for Madison)
     value: ..
+  showPeaks:
+    label: Show highest peaks (0=no, n=number to show)
+    value: 0
   extraSteps:
     label: Exra steps file (optional)
     value: ''
@@ -85,6 +88,14 @@ source(params$dataSetup)
 ```
 
 ```{r}
+# If looking for peaks, show them and exit.
+if(params$showPeaks > 0 & exists("peaks")) {
+  source("dataPeaks.R")
+  knitr::knit_exit()
+}
+```
+
+```{r}
 addcovar <- qtl2pattern::covar_df_mx(covar)
 ```
 
@@ -93,6 +104,7 @@ addcovar <- qtl2pattern::covar_df_mx(covar)
 ```{r ins_scan1}
 genoprobs <- query_probs()$probs
 map <- query_probs()$map
+cat("scan1 of whole genome\n", file = stderr())
 qtl_ins = qtl2::scan1(genoprobs = genoprobs, pheno = pheno_data[,pheno_name,drop=FALSE], 
             kinship = kinship, addcovar = addcovar, cores = 2)
 autoplot(qtl_ins, map, main = pheno_name)
@@ -116,10 +128,12 @@ autoplot(qtl_ins, map[chr_id], main = pheno_name) +
 
 ```{r ins_coef}
 if(params$coefType == "blup") {
+  cat(paste("scan1blup of chromosome", chr_id, "\n"), file = stderr())
   coef_ins = qtl2::scan1blup(genoprobs = genoprobs[,chr_id],
                    pheno = pheno_data[,pheno_name,drop=FALSE], 
                    kinship = kinship[[chr_id]], addcovar = addcovar, cores = 4)
 } else {
+  cat(paste("scan1coef of chromosome", chr_id, "\n"), file = stderr())
   coef_ins = qtl2::scan1coef(genoprobs = genoprobs[,chr_id],
                    pheno = pheno_data[,pheno_name,drop=FALSE], 
                    kinship = kinship[[chr_id]], addcovar = addcovar)
@@ -138,7 +152,7 @@ ap <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
 mrna <- query_mrna(chr_id)
 ```
 
-```{r med_scan,fig.width=12,fig.height=12}
+```{r med_scan,fig.width=9,fig.height=6}
 med_scan <- intermediate::mediation_scan(target   = pheno_data[,pheno_name,drop=FALSE],
                       mediator = mrna$expr,
                       annotation = mrna$annot,
@@ -160,7 +174,7 @@ med_signif <- med_lod$lod >= 5
 med_lod$info <- paste("chr =", med_lod$chr)
 ```
 
-```{r med_test,fig.width=12,fig.height=12}
+```{r med_test,fig.width=9,fig.height=6}
 med_test <- intermediate::mediation_test(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, med_signif, drop = FALSE],
@@ -181,7 +195,7 @@ if(resultpath != "")
   write.csv(sum_med, file = paste0(pheno_name, "_mediation.csv"))
 ```
 
-```{r med_triad,fig.width=12,fig.height=12}
+```{r med_triad,fig.width=9,fig.height=6}
 med_triad <- intermediate::mediation_triad(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, sum_med$id[1], drop = FALSE],
@@ -206,6 +220,12 @@ if(is.na(snpScan) || snpScan <= 0) {
 ```
 
 ```{r ins_assoc_chr,fig.width=12}
+if(is.null(start) & is.null(end)) {
+  cat(paste("scan1snps of chromosome", chr_id, "\n"), file = stderr())
+} else {
+  cat(paste("scan1snps of chromosome", chr_id, "from", start, "to", end, "\n"), file = stderr())
+}
+  
 assoc_ins = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
                       addcovar = addcovar, chr = chr_id, start = start,
@@ -217,8 +237,8 @@ autoplot(assoc_ins$lod, assoc_ins$snpinfo, show_all_snps = FALSE)
 Re-scan with SNP with highest LOD score to see evidence for second peak.
 
 ```{r ins_assoc_rescan,fig.width=12}
-ts <- qtl2::top_snps(assoc_ins$lod, assoc_ins$snpinfo) %>%
-  arrange(desc(lod)) %>%
+(ts <- qtl2::top_snps(assoc_ins$lod, assoc_ins$snpinfo) %>%
+  arrange(desc(lod))) %>%
   head(10)
 ```
 
@@ -227,7 +247,8 @@ if(resultpath != "")
   write.csv(ts, file = paste0(pheno_name, "_topsnps.csv"))
 ```
 
-```{r}
+```{r ts_kludge}
+# This part is clumsy but it works.
 ts1 = ts[1,]
 # We need to change the index to get qtl2::genoprob_to_snpprob() to work.
 ts1$index = 1
@@ -236,8 +257,11 @@ ts1$index = 1
 sp = qtl2::genoprob_to_snpprob(genoprobs = genoprobs[,chr_id], snpinfo = ts1)[[1]]
 
 # Just keep the A column.
-covar_ts = qtl2pattern::covar_df_mx(data.frame(covar, sp[,1,1]))
+m <- match(rownames(covar), rownames(sp), nomatch = 0)
+covar_ts = qtl2pattern::covar_df_mx(data.frame(covar[m>0,], sp[m,1,1]))
+```
 
+```{r assoc_ins2}
 assoc_ins2 = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
                       addcovar = covar_ts, chr = chr_id, start = start,
@@ -248,7 +272,7 @@ autoplot(assoc_ins2$lod, assoc_ins2$snpinfo, show_all_snps = FALSE)
 
 Look at the peak at `r ts1$pos` Mb.
 
-```{r ins_assoc_left,fig.width=12,fig.height=12}
+```{r ins_assoc_left,fig.width=9,fig.height=6}
 offset = as.numeric(params$offset)
 start = ts1$pos - offset
 end   = ts1$pos + offset
@@ -265,7 +289,7 @@ autoplot(assoc_ins_peak$lod, assoc_ins_peak$snpinfo, genes = genes, top_panel_pr
 
 View patterns in top SNPs.
 
-```{r assoc_ins_pattern,fig.width=12,fig.height=12}
+```{r assoc_ins_pattern,fig.width=9,fig.height=6}
 autoplot(assoc_ins_peak$lod, assoc_ins_peak$snpinfo, patterns = "all", drop_hilit = 5, main = pheno_name)
 ```
 
@@ -274,7 +298,7 @@ autoplot(assoc_ins_peak$lod, assoc_ins_peak$snpinfo, patterns = "all", drop_hili
 ```{r ins_top_snps_left}
 ts <- qtl2::top_snps(assoc_ins_peak$lod, assoc_ins_peak$snpinfo, drop = 1) %>%
   arrange(desc(lod))
-left_join(ts %>% rename(id = "ensembl_gene"),
+left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
           mrna$annot %>% select(id, symbol),
           by = "id") %>%
   select(snp_id, lod, pos, id, symbol, consequence) %>%
@@ -283,7 +307,7 @@ left_join(ts %>% rename(id = "ensembl_gene"),
 
 ```{r}
 if(resultpath != "")
-  write.csv(left_join(ts %>% rename(id = "ensembl_gene"),
+  write.csv(left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
           mrna$annot %>% select(id, symbol),
           by = "id"), file = paste0(pheno_name, "_topsnps_peak.csv"))
 ```
@@ -316,7 +340,7 @@ peak_snp <- find_snp_id(sp_peak, assoc_ins_peak$snpinfo, ts$pos)
 sp <- pull_snpprobpos(sp_peak, peak_snp)
 ```
 
-```{r med2_scan,fig.width=12,fig.height=12}
+```{r med2_scan,fig.width=9,fig.height=6}
 med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=FALSE],
                        mediator = mrna$expr,
                        annotation = mrna$annot,
@@ -338,7 +362,7 @@ med2_signif <- med2_lod$lod >= 5
 med2_lod$info <- paste("chr =", med2_lod$chr)
 ```
 
-```{r med2_test,fig.width=12,fig.height=12}
+```{r med2_test,fig.width=9,fig.height=6}
 med2_test <- intermediate::mediation_test(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, med_signif, drop = FALSE],
@@ -359,7 +383,7 @@ if(resultpath != "")
   write.csv(sum_med2, file = paste0(pheno_name, "_mediation_snp.csv"))
 ```
 
-```{r med2_triad,fig.width=12,fig.height=12}
+```{r med2_triad,fig.width=9,fig.height=6}
 med2_triad <- intermediate::mediation_triad(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, sum_med$id[1], drop = FALSE],

@@ -24,6 +24,11 @@ covar <- readRDS(file.path(project_dir, "covar.rds")) %>%
 
 kinship <- readRDS(file.path(project_dir, "kinship.rds"))
 
+cat("kinship\n", file = stderr())
+
+if(params$showPeaks > 0)
+  peaks <- readRDS(file.path(project_dir, "peaks.rds"))
+
 #############################################################################
 
 ## Query functions
@@ -43,7 +48,7 @@ query_gene <- qtl2::create_gene_query_func(dbfile = gene_dbfile,
 
 ## List environment for query_gene
 
-ls.str(environment(query_gene))
+#print(ls.str(environment(query_gene)))
 
 ## Query genoprobs
 
