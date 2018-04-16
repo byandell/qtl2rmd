@@ -10,6 +10,7 @@ pheno_data <- pheno_clin
 
 covar = model.matrix(~sex + DOwave, data = pheno_data)[,-1]
 pheno_data[, pheno_name] = log(pheno_data[, pheno_name])
+kinship <- K
 
 #############################################################################
 
