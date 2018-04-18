@@ -1,7 +1,40 @@
 # qtl2rmd
 Rmarkdown for qtl2 analyses
 
-This is built off a script developed by Dan Gatti. In Rstudio, use `Knit with Parameters` from <kbd>Knit</kbd> script pulldown menu to adjust parameter settings. The [analyzeQtl2.Rmd](analyzeQtl2.Rmd) Rmarkdown file depends on the following packages and their dependencies:
+This is built off a script developed by Dan Gatti. In Rstudio, use `Knit with Parameters` from <kbd>Knit</kbd> script pulldown menu to adjust parameter settings. this can also be done with the following commands (assuming you are in the parent folder of qtl2rmd):
+
+```
+RmdFilename <- "qtl2rmd/analyzeQtl2.Rmd"
+# Preset any `params` parameters you like
+param_vals <- list(
+  pheno_name = "Ins_tAUC",
+  coefType = "blup",
+  dataSetup = "dataJax.R")
+
+# Interactive setting of other parameters
+  if(interactive()) {
+  param_vals <- rmarkdown::knit_params_ask(
+    RmdFilename,
+    params = param_vals)
+}
+
+# Preset output format and filename.
+# Only HTML enables plotly use.
+out_format <- "html_document"
+out_filename <- "myoutput.html"
+
+# Render document
+rmarkdown::render(
+  RmdFilename,
+  output_format=out_format,
+  output_file=out_filename,
+                    params=param_vals)                                           
+```
+
+The script above (without the interactive call) could be used in a batch submission
+to produce a report or set of reports.
+
+The [analyzeQtl2.Rmd](analyzeQtl2.Rmd) Rmarkdown file depends on the following packages and their dependencies:
 
 - tidyverse
 - plotly
