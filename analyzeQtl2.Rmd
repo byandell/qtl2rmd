@@ -17,7 +17,7 @@ params:
     - dataJaxMadison.R
     input: select
     label: Data setup file
-    value: dataJaxMadison.R
+    value: dataMadison.R
   docTitle:
     label: Document title
     value: Mediation Scan
@@ -99,6 +99,14 @@ if(params$showPeaks > 0 & exists("peaks")) {
 addcovar <- qtl2pattern::covar_df_mx(covar)
 ```
 
+```{r}
+if("sex" %in% names(covar)) {
+  intcovar <- qtl2pattern::covar_df_mx(covar[, "sex", drop = FALSE])
+} else {
+  intcovar <- NULL
+}
+```
+
 ### Genome scan.
 
 ```{r ins_scan1}
@@ -106,7 +114,7 @@ genoprobs <- query_probs()$probs
 map <- query_probs()$map
 cat("scan1 of whole genome\n", file = stderr())
 qtl_ins = qtl2::scan1(genoprobs = genoprobs, pheno = pheno_data[,pheno_name,drop=FALSE], 
-            kinship = kinship, addcovar = addcovar, cores = 2)
+            kinship = kinship, addcovar = addcovar, intcovar = intcovar, cores = 2)
 autoplot(qtl_ins, map, main = pheno_name)
 ```
 
@@ -131,12 +139,14 @@ if(params$coefType == "blup") {
   cat(paste("scan1blup of chromosome", chr_id, "\n"), file = stderr())
   coef_ins = qtl2::scan1blup(genoprobs = genoprobs[,chr_id],
                    pheno = pheno_data[,pheno_name,drop=FALSE], 
-                   kinship = kinship[[chr_id]], addcovar = addcovar, cores = 4)
+                   kinship = kinship[[chr_id]], 
+                   addcovar = addcovar, intcovar = intcovar, cores = 4)
 } else {
   cat(paste("scan1coef of chromosome", chr_id, "\n"), file = stderr())
   coef_ins = qtl2::scan1coef(genoprobs = genoprobs[,chr_id],
                    pheno = pheno_data[,pheno_name,drop=FALSE], 
-                   kinship = kinship[[chr_id]], addcovar = addcovar)
+                   kinship = kinship[[chr_id]], 
+                   addcovar = addcovar, intcovar = intcovar)
 }
 autoplot(coef_ins, map, scan1_output = qtl_ins, main = pheno_name)
 ```
@@ -157,6 +167,8 @@ med_scan <- intermediate::mediation_scan(target   = pheno_data[,pheno_name,drop=
                       mediator = mrna$expr,
                       annotation = mrna$annot,
                       covar    = addcovar,
+                      intcovar = intcovar,
+                      kinship = kinship[[chr_id]],
                       driver = ap,
                       method = "double-lod-diff")
 ggplotly(autoplot(med_scan) +
@@ -168,7 +180,8 @@ med_lod <- intermediate::mediator_lod(
   mediator = mrna$expr,
   driver = ap,
   annotation = mrna$annot,
-  covar_med = covar)
+  kinship = kinship[[chr_id]],
+  covar_med = covar, intcovar = intcovar)
 med_signif <- med_lod$lod >= 5
 # Add info column.
 med_lod$info <- paste("chr =", med_lod$chr)
@@ -182,6 +195,7 @@ med_test <- intermediate::mediation_test(
   covar_tar = covar,
   covar_med = covar,
   kinship = kinship[[chr_id]],
+  intcovar = intcovar,
   driver = ap)
 ggplotly(autoplot(med_test))
 ```
@@ -201,6 +215,7 @@ med_triad <- intermediate::mediation_triad(
   mediator = mrna$expr[, sum_med$id[1], drop = FALSE],
   driver = ap,
   covar_tar = covar,
+  kinship = kinship[[chr_id]],
   sdp = sum(2 ^ (4:7)))
 autoplot(med_triad, tname = pheno_name, mname = sum_med$symbol[1], dname = peak_mar)
 ```
@@ -228,7 +243,7 @@ if(is.null(start) & is.null(end)) {
   
 assoc_ins = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
-                      addcovar = addcovar, chr = chr_id, start = start,
+                      addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = TRUE)
 autoplot(assoc_ins$lod, assoc_ins$snpinfo, show_all_snps = FALSE)
@@ -264,8 +279,9 @@ covar_ts = qtl2pattern::covar_df_mx(data.frame(covar[m>0,], sp[m,1,1]))
 ```{r assoc_ins2}
 assoc_ins2 = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
-                      addcovar = covar_ts, chr = chr_id, start = start,
-                      end = end, query_func = query_variant, cores = 4,
+                      addcovar = covar_ts, intcovar = intcovar, 
+                      chr = chr_id, start = start, end = end,
+                      query_func = query_variant, cores = 4,
                       keep_all_snps = TRUE)
 autoplot(assoc_ins2$lod, assoc_ins2$snpinfo, show_all_snps = FALSE)
 ```
@@ -278,8 +294,9 @@ start = ts1$pos - offset
 end   = ts1$pos + offset
 assoc_ins_peak = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
-                      addcovar = addcovar, chr = chr_id, start = start,
-                      end = end, query_func = query_variant, cores = 4,
+                      addcovar = addcovar, intcovar = intcovar,
+                      chr = chr_id, start = start, end = end,
+                      query_func = query_variant, cores = 4,
                       keep_all_snps = TRUE)
 
 genes = query_gene(chr = chr_id, start = start, end = end)
@@ -313,7 +330,7 @@ if(resultpath != "")
 ```
 
 ```{r}
-ts %>% filter(grepl("splice|missense|stop", consequence))
+ts %>% dplyr::filter(grepl("splice|missense|stop", consequence))
 ```
 
 ### Mediation with SNP probs at ~85 Mb
@@ -346,6 +363,8 @@ med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=
                        annotation = mrna$annot,
                        covar    = addcovar,
                        driver = sp,
+                       kinship = kinship[[chr_id]],
+                       intcovar = intcovar,
                        method = "double-lod-diff")
 ggplotly(autoplot(med2_scan) +
            ggtitle(pheno_name))
@@ -356,7 +375,9 @@ med2_lod <- intermediate::mediator_lod(
   mediator = mrna$expr,
   driver = sp,
   annotation = mrna$annot,
-  covar_med = covar)
+  covar_med = covar,
+  kinship = kinship[[chr_id]],
+  intcovar = intcovar)
 med2_signif <- med2_lod$lod >= 5
 # Add info column.
 med2_lod$info <- paste("chr =", med2_lod$chr)
@@ -370,6 +391,7 @@ med2_test <- intermediate::mediation_test(
   covar_tar = covar,
   covar_med = covar,
   kinship = kinship[[chr_id]],
+  intcovar = intcovar,
   driver = sp)
 ggplotly(autoplot(med2_test))
 ```
@@ -389,6 +411,7 @@ med2_triad <- intermediate::mediation_triad(
   mediator = mrna$expr[, sum_med$id[1], drop = FALSE],
   driver = sp,
   covar_tar = covar,
+  kinship = kinship[[chr_id]],
   sdp = ts$sdp,
   label_fn = NULL,
   group_fn = NULL)
