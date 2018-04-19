@@ -5,80 +5,56 @@
 
 # Load Attie data.
 cat("load Attie data\n", file = stderr())
-load("~/Documents/Research/attie_alan/DO/AttieDOv2/DerivedData/Attie_islet_secr_data_v1.Rdata")
 
-pheno_data <- pheno
+# Only getting pheno and covar from Jax.
 
-covar = model.matrix(~sex + DOwave, data = pheno_data)[,-1]
-pheno_data[, pheno_name] = log(pheno_data[, pheno_name])
-kinship <- K
+if(!file.exists(exvivo <- "local/Jax/exvivo_pheno.rds")) {
+  cat("one time load of Jax data\n", file = stderr())
+  load("~/Documents/Research/attie_alan/DO/AttieDOv2/DerivedData/Attie_islet_secr_data_v5.Rdata")
+  saveRDS(dataset.exvivo$pheno, file = exvivo)
+}
+
+# Assume data already transformed.
+pheno_data <- readRDS(exvivo)
+
+covar_info <- read.csv("local/Jax/islet_secr_for_brian.csv")
+covar_names <- unlist(stringr::str_split(
+  (covar_info %>% dplyr::filter(data_name == pheno_name))$covar,":"))
+form <- formula(paste("~", paste(covar_names, collapse = "+")))
+covar = model.matrix(form, data = pheno_data)[,-1]
+
+project_info <- data.frame(project = "AttieDOv2",
+                           taxa = "CCmouse",
+                           directory = datapath,
+                           stringsAsFactors = FALSE)
+taxa_dir <- file.path(project_info$directory, 
+                      project_info$taxa)
+print(project_dir <- file.path(taxa_dir, 
+                          project_info$project))
+
+kinship <- readRDS(file.path(project_dir, "kinship.rds"))
+
+cat("kinship\n", file = stderr())
+
+if(params$showPeaks > 0)
+  peaks <- readRDS(file.path(project_dir, "peaks.rds"))
 
 #############################################################################
 
 ## Query functions
-cat("query functions\n", file = stderr())
 
 ## Set up SNP variant query functions.
 
-cc_dbfile = "~/Documents/Research/qtl2shiny/qtl2shinyData/CCmouse/cc_variants.sqlite"
+cc_dbfile = file.path(taxa_dir, "cc_variants.sqlite")
 query_variant <- qtl2::create_variant_query_func(cc_dbfile, filter = "type=='snp'")
 
 ## Set up gene query functions.
 
 ## MGI query
 
-gene_dbfile = "~/Documents/Research/qtl2shiny/qtl2shinyData/CCmouse/mouse_genes.sqlite"
-query_gene_MGI <- qtl2::create_gene_query_func(dbfile = gene_dbfile,
-                                                 filter="(source=='MGI')")
-
-## AnotationHub query
-create_gene_query_func_AH <- function(pattern = c("ensembl", "gtf", "mus musculus", "90"),
-                                      filename = "Mus_musculus.GRCm38.88.gtf",
-                                      chr_field = "seqnames",
-                                      start_field = "start", stop_field = "end",
-                                      filter = NULL) {
-  if(is.null(pattern) & is.null(filename))
-      stop("must provide pattern and filename")
-  
-  # Visit AnnotationHub to get ensemble entries.
-  hub <- AnnotationHub::AnnotationHub()
-  hub <- AnnotationHub::query(hub, pattern)
-  ensembl <- hub[[names(hub)[hub$title == filename]]]
-  ensembl <- as.data.frame(ensembl[ensembl$type == "gene"])
-  colnames(ensembl)[colnames(ensembl) == "gene_id"] <- "ensembl_gene"
-  colnames(ensembl)[colnames(ensembl) == "gene_name"] <- "symbol"
-  ensembl[[start_field]] <- ensembl[[start_field]] * 10^-6
-  ensembl[[stop_field]]  <- ensembl[[stop_field]] * 10^-6
-  ensembl <- ensembl[, sapply(ensembl, function(x) !all(is.na(x)))]
-
-  function(chr, start = NULL, end = NULL) {
-    subset_ensembl <- ensembl[[chr_field]] == chr
-    if(!is.null(start))
-      subset_ensembl <- subset_ensembl & (ensembl[[start_field]] >= start)
-    if(!is.null(end))
-      subset_ensembl <- subset_ensembl & (ensembl[[stop_field]] >= end)
-    ensembl[subset_ensembl,]
-  }
-}
-cat("AnnotationHub call\n", file = stderr())
-query_gene_AH <- create_gene_query_func_AH()
-
-## Combined query
-
-cat("combined query\n", file = stderr())
-query_gene <- function(chr, start = NULL, end = NULL) {
-  chr <- as.character(chr)
-  MGI <- query_gene_MGI(chr, start, end)
-  AH <- query_gene_AH(chr, start, end)
-  dplyr::left_join(
-    MGI,
-    dplyr::rename(
-      dplyr::select(
-        AH, 
-        ensembl_gene, symbol),
-      Name = "symbol"),
-    by = "Name")
-}
+gene_dbfile = file.path(taxa_dir, "mouse_genes.sqlite")
+query_gene <- qtl2::create_gene_query_func(dbfile = gene_dbfile,
+                                           filter="(source=='MGI')")
 
 ## List environment for query_gene
 
@@ -86,37 +62,8 @@ query_gene <- function(chr, start = NULL, end = NULL) {
 
 ## Query genoprobs
 
-query_probs <- function(chr = NULL, start = NULL, end = NULL) {
-  if(is.null(chr))
-    return(list(probs = genoprobs, map = map))
-  
-  probs <- genoprobs[, chr]
-  map <- map[chr]
-  
-  if(length(chr) > 1)
-    return(list(probs = probs, map = map))
-  
-  keep <- rep(TRUE, length(map[[1]]))
-  if(!is.null(start))
-    keep <- keep[map[[1]] < start] <- FALSE
-  if(!is.null(end))
-    keep <- keep[map[[1]] > end] <- FALSE
-  
-  list(probs = subset(probs, mar = names(map[[1]][keep])),
-       map = map[[1]][keep])
-}
+query_probs <- qtl2pattern::create_probs_query_func(project_dir, method = "fast")
 
 ## query mRNA
 
-query_mrna <- function(chr = NULL, start = NULL, end = NULL) {
-  if(is.null(chr)) {
-    cat("need to supply chr\n", file = stderr())
-    return(NULL)
-  }
-  annot <- 
-    dplyr::rename(
-      annot.mrna[annot.mrna$chr == chr, ],
-      pos = "middle_point")     
-  list(expr = expr.mrna[, annot$id],
-       annot = annot)
-}
+query_mrna <- qtl2pattern::create_mrna_query_func(project_dir)

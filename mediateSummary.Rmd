@@ -1,0 +1,105 @@
+---
+title: "Mediation Summary"
+author: "Brian S. Yandell"
+date: "4/18/2018"
+output: html_document
+params:
+  suffix:
+    value: "mediation_snp"
+    label: File suffix
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+filenames <- list.files("batch", paste0("_", params$suffix, ".csv"))
+names(filenames) <- stringr::str_replace(filenames, paste0("_", params$suffix, ".csv"), "")
+filenames <- as.list(filenames)
+```
+
+```{r}
+meds <- 
+  dplyr::rename(
+    dplyr::mutate(
+      dplyr::select(
+        dplyr::bind_rows(
+          purrr::map(
+            filenames,
+            function(x) 
+              dplyr::filter(
+                read.csv(
+                  paste0("batch/", x),
+                  stringsAsFactors = FALSE),
+                triad == "causal",
+                pvalue <= 0.1)),
+          .id = "pheno"),
+        pheno, symbol, chr, pos, mediation, pvalue, dplyr::everything()),
+      mediation = mediation / log(10),
+      chr = as.character(chr),
+      LRmed = LRmed / log(10)),
+    QTLs = "info",
+    lod_med = "LRmed")
+```
+
+Need to relate this to the peaks file.
+
+```{r}
+tmpfn <- function(QTL) {
+  wh <- which(!is.na(QTL))
+  ct <- diff(c(wh, length(QTL) + 1))
+  rep(QTL[wh], ct)
+}
+```
+
+```{r}
+peaks <- 
+  dplyr::rename(
+    dplyr::arrange(
+      dplyr::mutate(
+        readxl::read_excel(
+          "local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
+          col_types = c(rep("text", 2), rep("numeric", 12), "numeric")),
+        QTL = tmpfn(QTL)),
+      dplyr::desc(lod)),
+    pheno = "lodcolumn",
+    peak_pos = "pos",
+    peak_lod = "lod")
+m <- match(LETTERS[1:8], names(peaks))
+names(peaks)[m] <- paste0(LETTERS[1:8], "_p")
+```
+
+```{r}
+out <- 
+  dplyr::left_join(meds, peaks, by = c("pheno", "chr"))
+```
+
+
+```{r}
+write.csv(out, file = paste0(params$suffix, "Summary.csv"))
+```
+
+```{r}
+out <- 
+  dplyr::mutate(
+    dplyr::arrange(
+      out,
+      QTL),
+    chrQTL = paste(chr, QTL, sep = ":"),
+    chrQTL = factor(chrQTL, unique(chrQTL)))
+```
+
+```{r}
+ggplot2::ggplot(out) +
+  ggplot2::aes(peak_lod - mediation, -log10(pvalue), col = chrQTL) +
+  ggplot2::geom_point()
+```
+
+```{r}
+ggplot2::ggplot(out) +
+  ggplot2::aes(peak_pos, pos, col = chrQTL) +
+  ggplot2::geom_abline(slope=1, intercept=0, col="grey") +
+  ggplot2::geom_point()
+```
+

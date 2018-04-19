@@ -2,7 +2,7 @@
 params:
   pheno_name:
     label: Phenotype
-    value: Ins_tAUC
+    value: G33_ins_secrete_gm
   coefType:
     choices:
     - coef
@@ -17,14 +17,14 @@ params:
     - dataJaxMadison.R
     input: select
     label: Data setup file
-    value: dataMadison.R
+    value: dataJaxMadison.R
   docTitle:
     label: Document title
     value: Mediation Scan
   snpScan:
     input: numeric
     label: Width for SNP scan (0 = whole chromosome)
-    value: 10
+    value: 5
   offset:
     label: Offset width for fine mapping
     value: 2
@@ -98,71 +98,37 @@ source(params$dataSetup)
 ```
 
 ```{r}
-# If looking for peaks, show them and exit.
-if(params$showPeaks > 0 & exists("peaks")) {
-  source("dataPeaks.R")
-  knitr::knit_exit()
-}
-```
-
-```{r}
 addcovar <- qtl2pattern::covar_df_mx(covar)
 ```
 
 ```{r}
-if(!is.logical(useIntcov <- params$useIntcov)) {
-  useIntcov <- (useIntcov == "yes")
-}
-print(useIntcov)
-if(("sex" %in% names(covar)) & useIntcov) {
-  intcovar <- qtl2pattern::covar_df_mx(covar[, "sex", drop = FALSE])
-} else {
-  intcovar <- NULL
-}
+intcovar <- NULL
 ```
 
-### Genome scan.
+### Genome scan information
 
-```{r ins_scan1}
+```{r}
 genoprobs <- query_probs()$probs
 map <- query_probs()$map
-cat("scan1 of whole genome\n", file = stderr())
-qtl_ins = qtl2::scan1(genoprobs = genoprobs, pheno = pheno_data[,pheno_name,drop=FALSE], 
-            kinship = kinship, addcovar = addcovar, intcovar = intcovar, cores = 2)
-autoplot(qtl_ins, map, main = pheno_name)
-```
-
-### QTL Peaks
-
-```{r ins_peaks}
-peaks = qtl2::find_peaks(qtl_ins, map, threshold = 8)
-chr_id <- peaks$chr[1]
-pos_Mbp <- peaks$pos[1]
-peaks
 ```
 
 ```{r}
-autoplot(qtl_ins, map[chr_id], main = pheno_name) +
-  geom_vline(xintercept = pos_Mbp, linetype = "dashed")
+(peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
+                            col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
+  dplyr::filter(lodcolumn == pheno_name) %>%
+  dplyr::arrange(dplyr::desc(lod)))
 ```
 
-### BLUP or Coef
-
-```{r ins_coef}
-if(params$coefType == "blup") {
-  cat(paste("scan1blup of chromosome", chr_id, "\n"), file = stderr())
-  coef_ins = qtl2::scan1blup(genoprobs = genoprobs[,chr_id],
-                   pheno = pheno_data[,pheno_name,drop=FALSE], 
-                   kinship = kinship[[chr_id]], 
-                   addcovar = addcovar, cores = 4)
-} else {
-  cat(paste("scan1coef of chromosome", chr_id, "\n"), file = stderr())
-  coef_ins = qtl2::scan1coef(genoprobs = genoprobs[,chr_id],
-                   pheno = pheno_data[,pheno_name,drop=FALSE], 
-                   kinship = kinship[[chr_id]], 
-                   addcovar = addcovar, intcovar = intcovar)
+```{r}
+if(!nrow(peaks)) {
+  cat("no peaks for", pheno_name, "\n")
+  knitr::knit_exit()
 }
-autoplot(coef_ins, map, scan1_output = qtl_ins, main = pheno_name)
+```
+
+```{r ins_peaks}
+chr_id <- peaks$chr[1]
+pos_Mbp <- peaks$pos[1]
 ```
 
 ### Mediation with allele probs.
@@ -220,7 +186,7 @@ ggplotly(autoplot(med_test))
 
 ```{r}
 if(resultpath != "")
-  write.csv(sum_med, file = paste0(pheno_name, "_mediation.csv"))
+  write.csv(sum_med, file = paste0(params$resultpath, "_mediation.csv"))
 ```
 
 ```{r med_triad,fig.width=9,fig.height=6}
@@ -273,7 +239,7 @@ Re-scan with SNP with highest LOD score to see evidence for second peak.
 
 ```{r}
 if(resultpath != "")
-  write.csv(ts, file = paste0(pheno_name, "_topsnps.csv"))
+  write.csv(ts, file = paste0(params$resultpath, "_topsnps.csv"))
 ```
 
 ```{r ts_kludge}
@@ -340,7 +306,8 @@ left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
 if(resultpath != "")
   write.csv(left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
           mrna$annot %>% select(id, symbol),
-          by = "id"), file = paste0(pheno_name, "_topsnps_peak.csv"))
+          by = "id"), 
+          file = paste0(params$resultpath, "_topsnps_peak.csv"))
 ```
 
 ```{r}
@@ -416,7 +383,7 @@ ggplotly(autoplot(med2_test))
 
 ```{r}
 if(resultpath != "")
-  write.csv(sum_med2, file = paste0(pheno_name, "_mediation_snp.csv"))
+  write.csv(sum_med2, file = paste0(params$resultpath, "_mediation_snp.csv"))
 ```
 
 ```{r med2_triad,fig.width=9,fig.height=6}

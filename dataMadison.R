@@ -9,7 +9,7 @@ project_info <- data.frame(project = "AttieDOv2",
                            stringsAsFactors = FALSE)
 taxa_dir <- file.path(project_info$directory, 
                       project_info$taxa)
-(project_dir <- file.path(taxa_dir, 
+print(project_dir <- file.path(taxa_dir, 
                          project_info$project))
 
 analyses <- readRDS(file.path(project_dir, "analyses.rds")) %>%
