@@ -86,7 +86,7 @@ ls.str(environment(query_gene))
 
 ## Query genoprobs
 
-query_probs <- function(chr = NULL, start = NULL, end = NULL) {
+query_probs <- function(chr = NULL, start = NULL, end = NULL, ...) {
   if(is.null(chr))
     return(list(probs = genoprobs, map = map))
   

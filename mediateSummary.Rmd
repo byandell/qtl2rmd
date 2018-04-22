@@ -13,6 +13,13 @@ params:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Ideas for further improvements:
+
+- 3-level SNP
+- M-P-D allele plot (add CCcolors and Rcolorbrewer colors for SNPs)
+- use CI region rather than offset (range is 0.2 to >50, so nix this)
+- organize other info from annot
+
 ```{r}
 filenames <- list.files("batch", paste0("_", params$suffix, ".csv"))
 names(filenames) <- stringr::str_replace(filenames, paste0("_", params$suffix, ".csv"), "")
@@ -75,10 +82,12 @@ out <-
   dplyr::left_join(meds, peaks, by = c("pheno", "chr"))
 ```
 
-
 ```{r}
 write.csv(out, file = paste0(params$suffix, "Summary.csv"))
 ```
+
+
+### Plots
 
 ```{r}
 out <- 
@@ -104,5 +113,75 @@ ggplot2::ggplot(out) +
   ggplot2::geom_abline(slope=1, intercept=0, col="grey") +
   ggplot2::geom_point() +
   ggplot2::facet_wrap(~ chr)
+```
+
+```{r fig.width=9,fig.heigth=6}
+plotly::ggplotly(ggplot2::ggplot(out) +
+  ggplot2::aes(peak_pos, peak_lod - mediation, col = chrQTL, symbol = symbol) +
+  ggplot2::geom_point() +
+  ggplot2::facet_wrap(~ chr))
+```
+
+```{r}
+if(params$suffix == "mediation_snp")
+  knitr::knit_exit()
+```
+
+### Plot of allele means
+
+```{r}
+allele_fit <- function(out) {
+  out1 <- 
+    dplyr::arrange(
+      dplyr::ungroup(
+        dplyr::mutate(
+          dplyr::group_by(
+            dplyr::mutate(
+              tidyr::gather(
+                dplyr::select(
+                  out,
+                  pheno, QTL, symbol, pvalue, A_m:H_m, A:H, A_p:H_p),
+                allele, effect, -pheno, -QTL, -symbol, -pvalue),
+              fitType = stringr::str_remove(allele, "[A-H]_*"),
+              allele = stringr::str_remove(allele, "_[a-z]"),
+              fitType = ifelse(fitType == "", "a", fitType),
+              fitType = c(m="Mediator", p="Target", a="Adjusted")[fitType],
+              fitType = factor(fitType, c("Mediator", "Target", "Adjusted"))),
+            pheno, QTL, symbol, fitType),
+          effect = effect - mean(effect))),
+      pvalue)
+  class(out1) <- c("allele_fit", class(out1))
+  out1
+}
+```
+
+```{r}
+ggplot_allele_fit <- function(out1) {
+  # This is broken now.
+  out1 <- 
+    dplyr::mutate(
+      dplyr::filter(
+        dplyr::mutate(
+          out1,
+          symbol = paste0(symbol, " (", signif(pvalue, 2), ")")),
+        symbol %in% unique(symbol)[1:12]),
+      symbol = factor(symbol, unique(symbol)))
+  ggplot2::ggplot(out1) +
+    ggplot2::aes(fitType, effect, color = allele, group = allele) +
+    ggplot2::geom_line() +
+    ggplot2::geom_point(size=2) +
+    ggplot2::facet_wrap(~ symbol) +
+    ggplot2::ggtitle(paste(out1$pheno[1], "for QTL", out1$QTL[1]))
+}
+autoplot.allele_fit <- function(...) ggplot_allele_fit(...)
+```
+
+```{r}
+outp <- split(out, interaction(out$pheno, out$QTL, drop = TRUE))
+allele_fits <- purrr::map(outp, allele_fit)
+```
+
+```{r fig.width = 12, fig.heigth = 9}
+sapply(allele_fits, function(x) print(ggplot_allele_fit(x)))
 ```
 

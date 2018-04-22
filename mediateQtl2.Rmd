@@ -3,6 +3,9 @@ params:
   pheno_name:
     label: Phenotype
     value: G33_ins_secrete_gm
+  chrID:
+    label: Chromosome
+    value: 11
   coefType:
     choices:
     - coef
@@ -24,10 +27,16 @@ params:
   snpScan:
     input: numeric
     label: Width for SNP scan (0 = whole chromosome)
-    value: 5
+    value: 10
   offset:
     label: Offset width for fine mapping
     value: 2
+  drivers:
+    label: Dual or lone drivers
+    choices:
+    - dual
+    - lone
+    value: dual
   resultpath:
     input: text
     label: Path to put CSV results (none if '')
@@ -83,6 +92,7 @@ This is built off script developed by Dan Gatti. In Rstudio, use `Knit with Para
 
 ```{r}
 pheno_name <- params$pheno_name
+chr_id <- params$chrID
 datapath <- params$datapath
 resultpath <- params$resultpath
 ```
@@ -115,8 +125,8 @@ map <- query_probs()$map
 ```{r}
 (peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
                             col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
-  dplyr::filter(lodcolumn == pheno_name) %>%
-  dplyr::arrange(dplyr::desc(lod)))
+  dplyr::filter(lodcolumn == pheno_name,
+                chr == chr_id))
 ```
 
 ```{r}
@@ -127,7 +137,6 @@ if(!nrow(peaks)) {
 ```
 
 ```{r ins_peaks}
-chr_id <- peaks$chr[1]
 pos_Mbp <- peaks$pos[1]
 ```
 
@@ -140,12 +149,13 @@ ap <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
 
 ```{r}
 mrna <- query_mrna(chr_id)
+mrna.annot <- mrna$annot
 ```
 
 ```{r med_scan,fig.width=9,fig.height=6}
 med_scan <- intermediate::mediation_scan(target   = pheno_data[,pheno_name,drop=FALSE],
                       mediator = mrna$expr,
-                      annotation = mrna$annot,
+                      annotation = mrna.annot,
                       covar    = addcovar,
                       intcovar = intcovar,
                       kinship = kinship[[chr_id]],
@@ -155,33 +165,45 @@ ggplotly(autoplot(med_scan) +
            ggtitle(pheno_name))
 ```
 
+Find peaks for local mRNA that are close to SNP peak.
+
 ```{r}
-med_lod <- intermediate::mediator_lod(
-  mediator = mrna$expr,
-  driver = ap,
-  annotation = mrna$annot,
-  kinship = kinship[[chr_id]],
-  covar_med = covar, intcovar = intcovar)
-med_signif <- med_lod$lod >= 5
-# Add info column.
-med_lod$info <- paste("chr =", med_lod$chr)
+epeaks <- 
+  dplyr::filter(
+    mrna$peaks,
+    qtl_chr == chr_id,
+    abs(qtl_pos - peaks$pos) <= params$snpScan)
+med_signif <- which(names(mrna$expr) %in% epeaks$gene_id)
+```
+
+```{r}
+if(params$drivers == "dual") {
+  mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$pos)
+  driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
+} else {
+  driver_med <- NULL
+}
 ```
 
 ```{r med_test,fig.width=9,fig.height=6}
 med_test <- intermediate::mediation_test(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, med_signif, drop = FALSE],
-  annotation = mrna$annot,
+  annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
   kinship = kinship[[chr_id]],
   intcovar = intcovar,
-  driver = ap)
+  driver = ap,
+  driver_med = driver_med)
 ggplotly(autoplot(med_test))
 ```
 
 ```{r}
-(sum_med <- summary(med_test))
+(sum_med <- 
+   dplyr::arrange(
+     summary(med_test),
+     pvalue))
 ```
 
 ```{r}
@@ -189,11 +211,19 @@ if(resultpath != "")
   write.csv(sum_med, file = paste0(params$resultpath, "_mediation.csv"))
 ```
 
+```{r}
+if(params$drivers == "dual") {
+  driver <- driver_med[,, dplyr::filter(mrna.annot, id == sum_med$id[1])$driver]
+} else {
+  driver <- ap
+}
+```
+
 ```{r med_triad,fig.width=9,fig.height=6}
 med_triad <- intermediate::mediation_triad(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, sum_med$id[1], drop = FALSE],
-  driver = ap,
+  driver = driver,
   covar_tar = covar,
   kinship = kinship[[chr_id]],
   sdp = sum(2 ^ (4:7)))
@@ -214,6 +244,12 @@ if(is.na(snpScan) || snpScan <= 0) {
 }
 ```
 
+```{r}
+pairprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
+pairmap <- pairprobs$map
+pairprobs <- pairprobs$probs
+```
+
 ```{r ins_assoc_chr,fig.width=12}
 if(is.null(start) & is.null(end)) {
   cat(paste("scan1snps of chromosome", chr_id, "\n"), file = stderr())
@@ -221,11 +257,11 @@ if(is.null(start) & is.null(end)) {
   cat(paste("scan1snps of chromosome", chr_id, "from", start, "to", end, "\n"), file = stderr())
 }
   
-assoc_ins = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
+assoc_ins = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
-                      keep_all_snps = TRUE)
+                      keep_all_snps = FALSE)
 autoplot(assoc_ins$lod, assoc_ins$snpinfo, show_all_snps = FALSE)
 ```
 
@@ -249,20 +285,20 @@ ts1 = ts[1,]
 ts1$index = 1
 
 # This converts the top SNP to SNP probs using the allele probs.
-sp = qtl2::genoprob_to_snpprob(genoprobs = genoprobs[,chr_id], snpinfo = ts1)[[1]]
+sp = qtl2::genoprob_to_snpprob(genoprobs = pairprobs[,chr_id], snpinfo = ts1)[[1]][,,1]
 
 # Just keep the A column.
 m <- match(rownames(covar), rownames(sp), nomatch = 0)
-covar_ts = qtl2pattern::covar_df_mx(data.frame(covar[m>0,], sp[m,1,1]))
+covar_ts = qtl2pattern::covar_df_mx(data.frame(covar[m>0,], sp[m,1]))
 ```
 
 ```{r assoc_ins2}
-assoc_ins2 = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
+assoc_ins2 = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
                       addcovar = covar_ts, intcovar = intcovar, 
                       chr = chr_id, start = start, end = end,
                       query_func = query_variant, cores = 4,
-                      keep_all_snps = TRUE)
+                      keep_all_snps = FALSE)
 autoplot(assoc_ins2$lod, assoc_ins2$snpinfo, show_all_snps = FALSE)
 ```
 
@@ -270,16 +306,16 @@ Look at the peak at `r ts1$pos` Mb.
 
 ```{r ins_assoc_left,fig.width=9,fig.height=6}
 offset = as.numeric(params$offset)
-start = ts1$pos - offset
-end   = ts1$pos + offset
-assoc_ins_peak = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
+starto = ts1$pos - offset
+endo   = ts1$pos + offset
+assoc_ins_peak = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
                       pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
                       addcovar = addcovar, intcovar = intcovar,
-                      chr = chr_id, start = start, end = end,
+                      chr = chr_id, start = starto, end = endo,
                       query_func = query_variant, cores = 4,
-                      keep_all_snps = TRUE)
+                      keep_all_snps = FALSE)
 
-genes = query_gene(chr = chr_id, start = start, end = end)
+genes = query_gene(chr = chr_id, start = starto, end = endo)
 genes = genes[(genes$stop - genes$start) < 2,]
 autoplot(assoc_ins_peak$lod, assoc_ins_peak$snpinfo, genes = genes, top_panel_prop = 0.5, colors = "black")
 ```
@@ -296,7 +332,7 @@ autoplot(assoc_ins_peak$lod, assoc_ins_peak$snpinfo, patterns = "all", drop_hili
 ts <- qtl2::top_snps(assoc_ins_peak$lod, assoc_ins_peak$snpinfo, drop = 1) %>%
   arrange(desc(lod))
 left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
-          mrna$annot %>% select(id, symbol),
+          mrna.annot %>% select(id, symbol),
           by = "id") %>%
   select(snp_id, lod, pos, id, symbol, consequence) %>%
   head(10)
@@ -305,7 +341,7 @@ left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
 ```{r}
 if(resultpath != "")
   write.csv(left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
-          mrna$annot %>% select(id, symbol),
+          mrna.annot %>% select(id, symbol),
           by = "id"), 
           file = paste0(params$resultpath, "_topsnps_peak.csv"))
 ```
@@ -325,7 +361,11 @@ ts <- ts[which.max(ts$lod),]
 # Functions that parallel find_marker and pull_genoprobpos from R/qtl2.
 find_snp_id <- function(snpprobs, snpinfo, pos) {
   m <- match(dimnames(snpprobs[[1]])[[3]], snpinfo$snp_id)
-  snpinfo$snp_id[m[which.min(abs(snpinfo$pos[m] - pos))]]
+  out <- rep(NA, length(pos))
+  for(i in seq_along(pos)) {
+    out[i] <- snpinfo$snp_id[m[which.min(abs(snpinfo$pos[m] - pos[i]))]]
+  }
+  out
 }
 pull_snpprobpos <- function(snpprobs, snp_id) {
   snpprobs[[1]][,, snp_id]
@@ -333,15 +373,16 @@ pull_snpprobpos <- function(snpprobs, snp_id) {
 ```
 
 ```{r peak_snp,message=FALSE}
-sp_peak <- qtl2::genoprob_to_snpprob(genoprobs, assoc_ins_peak$snpinfo)
+sp_peak <- qtl2::genoprob_to_snpprob(pairprobs, assoc_ins_peak$snpinfo)
 peak_snp <- find_snp_id(sp_peak, assoc_ins_peak$snpinfo, ts$pos)
 sp <- pull_snpprobpos(sp_peak, peak_snp)
 ```
 
+
 ```{r med2_scan,fig.width=9,fig.height=6}
 med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=FALSE],
                        mediator = mrna$expr,
-                       annotation = mrna$annot,
+                       annotation = mrna.annot,
                        covar    = addcovar,
                        driver = sp,
                        kinship = kinship[[chr_id]],
@@ -352,10 +393,44 @@ ggplotly(autoplot(med2_scan) +
 ```
 
 ```{r}
+assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
+                      pheno = mrna$expr[, med_signif, drop = FALSE],
+                      kinship = kinship[[chr_id]],
+                      addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
+                      end = end, query_func = query_variant, cores = 4,
+                      keep_all_snps = FALSE)
+```
+
+```{r}
+(ts_med <- qtl2pattern::top_snps_all(assoc_med$lod, assoc_med$snpinfo) %>%
+  arrange(desc(lod))) %>%
+  head(10)
+```
+
+```{r}
+(ts_med <- ts_med %>%
+  group_by(pheno) %>%
+  summarize(
+    max_lod = max(lod),
+    max_pos = pos[which.max(lod)]) %>%
+  ungroup)
+```
+
+```{r}
+if(params$drivers == "dual") {
+  med_snp <- find_snp_id(sp_peak, assoc_ins_peak$snpinfo, ts_med$max_pos)
+  mrna.annot$driver[med_signif] <- med_snp
+  driver_med_snp <- sp_peak[[1]][,, unique(med_snp), drop = FALSE]
+} else {
+  driver_med_snp <- sp
+}
+```
+
+```{r eval=FALSE}
 med2_lod <- intermediate::mediator_lod(
   mediator = mrna$expr,
   driver = sp,
-  annotation = mrna$annot,
+  annotation = mrna.annot,
   covar_med = covar,
   kinship = kinship[[chr_id]],
   intcovar = intcovar)
@@ -368,12 +443,13 @@ med2_lod$info <- paste("chr =", med2_lod$chr)
 med2_test <- intermediate::mediation_test(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, med_signif, drop = FALSE],
-  annotation = mrna$annot,
+  annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
   kinship = kinship[[chr_id]],
   intcovar = intcovar,
-  driver = sp)
+  driver = sp,
+  driver_med = driver_med_snp)
 ggplotly(autoplot(med2_test))
 ```
 
