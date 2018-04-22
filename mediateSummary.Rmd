@@ -5,8 +5,11 @@ date: "4/18/2018"
 output: html_document
 params:
   suffix:
-    value: "mediation"
+    value: mediation
     label: File suffix
+  batch:
+    value: batch2
+    label: Batch directory
 ---
 
 ```{r setup, include=FALSE}
@@ -21,7 +24,7 @@ Ideas for further improvements:
 - organize other info from annot
 
 ```{r}
-filenames <- list.files("batch", paste0("_", params$suffix, ".csv"))
+filenames <- list.files(params$batch, paste0("_", params$suffix, ".csv"))
 names(filenames) <- stringr::str_replace(filenames, paste0("_", params$suffix, ".csv"), "")
 filenames <- as.list(filenames)
 ```
@@ -37,7 +40,7 @@ meds <-
             function(x) 
               dplyr::filter(
                 read.csv(
-                  paste0("batch/", x),
+                  file.path(params$batch, x),
                   stringsAsFactors = FALSE),
                 triad == "causal",
                 pvalue <= 0.1)),
@@ -68,6 +71,7 @@ peaks <-
         readxl::read_excel(
           "local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
           col_types = c(rep("text", 2), rep("numeric", 12), "numeric")),
+        lodcolumn = paste(lodcolumn, chr, sep = "_"),
         QTL = tmpfn(QTL)),
       dplyr::desc(lod)),
     pheno = "lodcolumn",
@@ -130,50 +134,7 @@ if(params$suffix == "mediation_snp")
 ### Plot of allele means
 
 ```{r}
-allele_fit <- function(out) {
-  out1 <- 
-    dplyr::arrange(
-      dplyr::ungroup(
-        dplyr::mutate(
-          dplyr::group_by(
-            dplyr::mutate(
-              tidyr::gather(
-                dplyr::select(
-                  out,
-                  pheno, QTL, symbol, pvalue, A_m:H_m, A:H, A_p:H_p),
-                allele, effect, -pheno, -QTL, -symbol, -pvalue),
-              fitType = stringr::str_remove(allele, "[A-H]_*"),
-              allele = stringr::str_remove(allele, "_[a-z]"),
-              fitType = ifelse(fitType == "", "a", fitType),
-              fitType = c(m="Mediator", p="Target", a="Adjusted")[fitType],
-              fitType = factor(fitType, c("Mediator", "Target", "Adjusted"))),
-            pheno, QTL, symbol, fitType),
-          effect = effect - mean(effect))),
-      pvalue)
-  class(out1) <- c("allele_fit", class(out1))
-  out1
-}
-```
-
-```{r}
-ggplot_allele_fit <- function(out1) {
-  # This is broken now.
-  out1 <- 
-    dplyr::mutate(
-      dplyr::filter(
-        dplyr::mutate(
-          out1,
-          symbol = paste0(symbol, " (", signif(pvalue, 2), ")")),
-        symbol %in% unique(symbol)[1:12]),
-      symbol = factor(symbol, unique(symbol)))
-  ggplot2::ggplot(out1) +
-    ggplot2::aes(fitType, effect, color = allele, group = allele) +
-    ggplot2::geom_line() +
-    ggplot2::geom_point(size=2) +
-    ggplot2::facet_wrap(~ symbol) +
-    ggplot2::ggtitle(paste(out1$pheno[1], "for QTL", out1$QTL[1]))
-}
-autoplot.allele_fit <- function(...) ggplot_allele_fit(...)
+source("R/allele_fit.R")
 ```
 
 ```{r}

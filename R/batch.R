@@ -13,8 +13,8 @@ if(!file.exists(exvivo <- "local/Jax/exvivo_pheno.rds")) {
 }
 exvivo_pheno <- readRDS(exvivo)
 
-pheno_names <- peaks_info$lodcolumn
-chr_names <- peaks_info$chr
+pheno_names <- peak_info$lodcolumn
+chr_names <- peak_info$chr
 
 for(i in seq_along(pheno_names)) {
   cat(pheno_names[i], chr_names[i], "run analysis\n", file = stderr())
