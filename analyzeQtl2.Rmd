@@ -354,21 +354,15 @@ ts <- qtl2::top_snps(assoc_ins_peak$lod, assoc_ins_peak$snpinfo)
 ts <- ts[which.max(ts$lod),]
 ```
 
-```{r}
-# Functions that parallel find_marker and pull_genoprobpos from R/qtl2.
-find_snp_id <- function(snpprobs, snpinfo, pos) {
-  m <- match(dimnames(snpprobs[[1]])[[3]], snpinfo$snp_id)
-  snpinfo$snp_id[m[which.min(abs(snpinfo$pos[m] - pos))]]
-}
-pull_snpprobpos <- function(snpprobs, snp_id) {
-  snpprobs[[1]][,, snp_id]
-}
-```
-
 ```{r peak_snp,message=FALSE}
-sp_peak <- qtl2::genoprob_to_snpprob(genoprobs, assoc_ins_peak$snpinfo)
-peak_snp <- find_snp_id(sp_peak, assoc_ins_peak$snpinfo, ts$pos)
-sp <- pull_snpprobpos(sp_peak, peak_snp)
+sp_peak <- qtl2::genoprob_to_snpprob(pairprobs, assoc_ins_peak$snpinfo)
+peak_snp <- 
+  qtl2::find_index_snp(
+    assoc_ins_peak$snpinfo,
+    qtl2::find_marker(
+      assoc_ins_peak$snpinfo,
+      ts$chr, ts$pos))
+sp <- sp_peak[[chr_id]][,, peak_snp]
 ```
 
 ```{r med2_scan,fig.width=9,fig.height=6}

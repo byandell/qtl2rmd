@@ -5,23 +5,28 @@ date: "4/18/2018"
 output: html_document
 params:
   suffix:
-    value: mediation
+    value: mediation_snp
     label: File suffix
   batch:
     value: batch2
     label: Batch directory
+  cutoff:
+    value: 0.05
+    label: P-value cutoff
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Ideas for further improvements:
+The differences of this analysis and summary from the previous are:
 
-- 3-level SNP
-- M-P-D allele plot (add CCcolors and Rcolorbrewer colors for SNPs)
-- use CI region rather than offset (range is 0.2 to >50, so nix this)
-- organize other info from annot
+- use separate causal drivers for mediators and target
+    + earlier used only target for driver
+    + mediators selected based on their peak, not on LOD at target driver
+- using 3-level SNP (from 36 allele pair probabilities) for SNP analysis
+- include Mediator-Target-Adjusted allele plot to compare alleles
+- use 0.05 cutoff for summary (previous used 0.1)
 
 ```{r}
 filenames <- list.files(params$batch, paste0("_", params$suffix, ".csv"))
@@ -43,23 +48,35 @@ meds <-
                   file.path(params$batch, x),
                   stringsAsFactors = FALSE),
                 triad == "causal",
-                pvalue <= 0.1)),
-          .id = "pheno"),
-        pheno, symbol, chr, pos, mediation, pvalue, dplyr::everything()),
+                pvalue <= params$cutoff)),
+          .id = "target"),
+        target, symbol, chr, pos, mediation, pvalue, dplyr::everything()),
       mediation = mediation / log(10),
       chr = as.character(chr),
       LRmed = LRmed / log(10)),
     QTLs = "info",
+    lod_adj = "mediation",
+    mediator = "symbol",
     lod_med = "LRmed")
+if(params$suffix != "mediation") {
+  meds <- dplyr::rename(
+    meds,
+    A = "AA",
+    H = "AB",
+    B = "BB",
+    A_m = "AA_m",
+    H_m = "AB_m",
+    B_m = "BB_m")
+}
 ```
 
 Need to relate this to the peaks file.
 
 ```{r}
-tmpfn <- function(QTL) {
-  wh <- which(!is.na(QTL))
-  ct <- diff(c(wh, length(QTL) + 1))
-  rep(QTL[wh], ct)
+tmpfn <- function(group) {
+  wh <- which(!is.na(group))
+  ct <- diff(c(wh, length(group) + 1))
+  rep(group[wh], ct)
 }
 ```
 
@@ -74,16 +91,17 @@ peaks <-
         lodcolumn = paste(lodcolumn, chr, sep = "_"),
         QTL = tmpfn(QTL)),
       dplyr::desc(lod)),
-    pheno = "lodcolumn",
-    peak_pos = "pos",
-    peak_lod = "lod")
+    target = "lodcolumn",
+    pos_tar = "pos",
+    lod_tar = "lod",
+    group = "QTL")
 m <- match(LETTERS[1:8], names(peaks))
 names(peaks)[m] <- paste0(LETTERS[1:8], "_p")
 ```
 
 ```{r}
 out <- 
-  dplyr::left_join(meds, peaks, by = c("pheno", "chr"))
+  dplyr::left_join(meds, peaks, by = c("target", "chr"))
 ```
 
 ```{r}
@@ -94,26 +112,32 @@ write.csv(out, file = paste0(params$suffix, "Summary.csv"))
 ### Plots
 
 ```{r}
+tmpfn <- function(chr, group) {
+  factor(unlist(sapply(split(group, chr), function(x) 1 + x - min(x))))
+}
+```
+
+```{r}
 out <- 
   dplyr::mutate(
     dplyr::arrange(
       out,
-      QTL),
+      group),
     chr = factor(chr, unique(chr)),
-    chrQTL = paste(chr, QTL, sep = ":"),
-    chrQTL = factor(chrQTL, unique(chrQTL)))
+    chrGroup = tmpfn(chr, group))
 ```
 
 ```{r}
 ggplot2::ggplot(out) +
-  ggplot2::aes(peak_lod - mediation, -log10(pvalue), col = chrQTL) +
+  ggplot2::aes(lod_tar - lod_med, -log10(pvalue),
+               col = chrGroup) +
   ggplot2::geom_point() +
   ggplot2::facet_wrap(~ chr)
 ```
 
 ```{r}
 ggplot2::ggplot(out) +
-  ggplot2::aes(peak_pos, pos, col = chrQTL) +
+  ggplot2::aes(pos_tar, pos, col = chrGroup) +
   ggplot2::geom_abline(slope=1, intercept=0, col="grey") +
   ggplot2::geom_point() +
   ggplot2::facet_wrap(~ chr)
@@ -121,28 +145,28 @@ ggplot2::ggplot(out) +
 
 ```{r fig.width=9,fig.heigth=6}
 plotly::ggplotly(ggplot2::ggplot(out) +
-  ggplot2::aes(peak_pos, peak_lod - mediation, col = chrQTL, symbol = symbol) +
+  ggplot2::aes(pos_tar, lod_tar - lod_med, col = chrGroup, symbol = mediator) +
   ggplot2::geom_point() +
   ggplot2::facet_wrap(~ chr))
 ```
 
+### Plot of driver effects
+
+Driver effects by Mediator, Target, Adjusted model.
+
 ```{r}
-if(params$suffix == "mediation_snp")
-  knitr::knit_exit()
+if(params$suffix == "mediation") {
+  driver_levels <- LETTERS[1:8]
+} else {
+  driver_levels <- c("A","H","B")
+}
 ```
 
-### Plot of allele means
-
 ```{r}
-source("R/allele_fit.R")
-```
-
-```{r}
-outp <- split(out, interaction(out$pheno, out$QTL, drop = TRUE))
-allele_fits <- purrr::map(outp, allele_fit)
+outp <- split(out, interaction(out$target, out$group, drop = TRUE))
+driver_effects <- purrr::map(outp, intermediate::driver_effect, driver_levels)
 ```
 
 ```{r fig.width = 12, fig.heigth = 9}
-sapply(allele_fits, function(x) print(ggplot_allele_fit(x)))
+invisible(sapply(driver_effects, function(x) print(intermediate::ggplot_driver_effect(x))))
 ```
-
