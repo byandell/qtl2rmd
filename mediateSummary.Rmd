@@ -129,7 +129,7 @@ out <-
 
 ```{r}
 ggplot2::ggplot(out) +
-  ggplot2::aes(lod_tar - lod_med, -log10(pvalue),
+  ggplot2::aes(lod_tar - lod_adj, -log10(pvalue),
                col = chrGroup) +
   ggplot2::geom_point() +
   ggplot2::facet_wrap(~ chr)
@@ -145,7 +145,7 @@ ggplot2::ggplot(out) +
 
 ```{r fig.width=9,fig.heigth=6}
 plotly::ggplotly(ggplot2::ggplot(out) +
-  ggplot2::aes(pos_tar, lod_tar - lod_med, col = chrGroup, symbol = mediator) +
+  ggplot2::aes(pos_tar, lod_tar - lod_adj, col = chrGroup, symbol = mediator) +
   ggplot2::geom_point() +
   ggplot2::facet_wrap(~ chr))
 ```
