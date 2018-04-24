@@ -217,7 +217,7 @@ med_triad <- intermediate::mediation_triad(
 autoplot(med_triad, tname = pheno_name, mname = sum_med$symbol[1], dname = peak_mar)
 ```
 
-Driver effects by Mediator, Target, Adjusted model.
+#### Driver effects by Mediator, Target, Adjusted model.
 
 ```{r}
 meds <- 
@@ -259,7 +259,8 @@ out <-
 ```{r}
 plotly::ggplotly(
   ggplot2::ggplot(out) +
-    ggplot2::aes(lod_tar - lod_adj, -log10(pvalue), col = biotype, symbol = mediator) +
+    ggplot2::aes(lod_tar - lod_adj, -log10(pvalue), col = biotype,
+                 symbol = mediator, pvalue = pvalue) +
     ggplot2::geom_point())
 ```
 
@@ -347,7 +348,7 @@ if(resultpath != "")
 ts %>% dplyr::filter(grepl("splice|missense|stop", consequence))
 ```
 
-### Mediation with SNP probs at ~85 Mb
+### Mediation with SNP probs
 
 ```{r peak_snp,message=FALSE}
 sp_peak <- qtl2::genoprob_to_snpprob(pairprobs, assoc_ins$snpinfo)
@@ -400,6 +401,8 @@ assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap,
    arrange(desc(lod)))
 ```
 
+Set up drivers for mediators.
+
 ```{r}
 if(params$drivers == "dual") {
   med_snp <- 
@@ -413,20 +416,6 @@ if(params$drivers == "dual") {
 } else {
   driver_med_snp <- sp
 }
-```
-
-```{r eval=FALSE}
-# Skip this since we know where mediator peaks are.
-med2_lod <- intermediate::mediator_lod(
-  mediator = mrna$expr,
-  driver = sp,
-  annotation = mrna.annot,
-  covar_med = covar,
-  kinship = kinship[[chr_id]],
-  intcovar = intcovar)
-med2_signif <- med2_lod$lod >= 5
-# Add info column.
-med2_lod$info <- paste("chr =", med2_lod$chr)
 ```
 
 ```{r med2_test,fig.width=9,fig.height=6}
