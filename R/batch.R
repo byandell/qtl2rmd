@@ -25,7 +25,7 @@ for(i in seq_along(pheno_names)) {
     dataSetup = "dataJaxMadison.R",
     coefType = "coef",
     chrID = chr_names[i],
-    resultpath = paste0("batch2/", pheno_names[i], "_", chr_names[i]))
+    resultpath = "batch2")
     
   out_filename <- paste0("batch2/", pheno_names[i], "_", chr_names[i], ".html")
     

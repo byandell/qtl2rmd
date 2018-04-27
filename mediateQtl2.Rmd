@@ -2,7 +2,7 @@
 params:
   pheno_name:
     label: Phenotype
-    value: G33_ins_secrete_gm
+    value: GLP1_G83_ins_secrete_gm
   chrID:
     label: Chromosome
     value: 1
@@ -195,7 +195,8 @@ ggplotly(autoplot(med_test))
 
 ```{r}
 if(resultpath != "")
-  write.csv(sum_med, file = paste0(params$resultpath, "_mediation.csv"))
+  write.csv(sum_med, file = file.path(params$resultpath,
+                                      paste0(pheno_name, "_", chr_id, "_mediation.csv")))
 ```
 
 ```{r}
@@ -317,7 +318,8 @@ autoplot(assoc_ins$lod, assoc_ins$snpinfo, show_all_snps = FALSE)
 
 ```{r}
 if(resultpath != "")
-  write.csv(ts, file = paste0(params$resultpath, "_topsnps.csv"))
+  write.csv(ts, file = file.path(params$resultpath,
+                                 paste0(pheno_name, "_", chr_id, "_topsnps.csv")))
 ```
 
 View patterns in top SNPs.
@@ -341,7 +343,8 @@ if(resultpath != "")
   write.csv(left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
           mrna.annot %>% select(id, symbol),
           by = "id"), 
-          file = paste0(params$resultpath, "_topsnps_peak.csv"))
+          file = file.path(params$resultpath, 
+                           paste0(pheno_name, "_", chr_id, "_topsnps_peak.csv")))
 ```
 
 ```{r}
@@ -438,7 +441,8 @@ ggplotly(autoplot(med2_test))
 
 ```{r}
 if(resultpath != "")
-  write.csv(sum_med2, file = paste0(params$resultpath, "_mediation_snp.csv"))
+  write.csv(sum_med2, file = file.path(params$resultpath,
+                                       paste0(pheno_name, "_", chr_id, "_mediation_snp.csv")))
 ```
 
 ```{r med2_triad,fig.width=9,fig.height=6}
