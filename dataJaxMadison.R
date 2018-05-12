@@ -29,8 +29,8 @@ project_info <- data.frame(project = "AttieDOv2",
                            stringsAsFactors = FALSE)
 taxa_dir <- file.path(project_info$directory, 
                       project_info$taxa)
-print(project_dir <- file.path(taxa_dir, 
-                          project_info$project))
+cat(project_dir <- file.path(taxa_dir, 
+                          project_info$project), "\n", file = stderr())
 
 kinship <- readRDS(file.path(project_dir, "kinship.rds"))
 

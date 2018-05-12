@@ -1,0 +1,473 @@
+---
+params:
+  pheno_name:
+    label: Phenotype
+    value: GLP1_G83_ins_secrete_gm
+  chrID:
+    label: Chromosome
+    value: 1
+  coefType:
+    choices:
+    - coef
+    - blup
+    input: select
+    label: Coefficient calculation
+    value: coef
+  dataSetup:
+    choices:
+    - dataJax.R
+    - dataMadison.R
+    - dataJaxMadison.R
+    input: select
+    label: Data setup file
+    value: dataJaxMadison.R
+  docTitle:
+    label: Document title
+    value: Mediation Scan
+  snpScan:
+    input: numeric
+    label: Width for SNP scan (0 = whole chromosome)
+    value: 10
+  offset:
+    label: Offset width for fine mapping
+    value: 2
+  resultpath:
+    input: text
+    label: Path to put CSV results (none if '')
+    value: '.'
+  docAuthor:
+    label: Author
+    value: '[Brian S Yandell](brian.yandell@wisc.edu)'
+  docOutput:
+    choices:
+    - html_document
+    - pdf_document
+    - word_document
+    input: select
+    label: Output format
+    value: html_document
+  datapath:
+    input: text
+    label: Path to derived data (required for Madison)
+    value: ..
+  showPeaks:
+    label: Show highest peaks (0=no, n=number to show)
+    value: 0
+  useIntcov:
+    choices:
+    - no
+    - yes
+    label: Use interacting covariate (sex)?
+    value: no
+  extraSteps:
+    label: Exra steps file (optional)
+    value: ''
+---
+
+---
+title: "`r params$docTitle`"
+author: "`r params$docAuthor`"
+date: "`r  format(Sys.time(), '%d %B %Y')`"
+output:
+  "`r params$docOutput`":
+    toc: true
+    toc_depth: 3
+    code_folding: hide
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+```
+
+
+
+```{r}
+pheno_name <- params$pheno_name
+chr_id <- as.character(params$chrID)
+datapath <- params$datapath
+resultpath <- params$resultpath
+```
+
+```{r}
+data.frame(params_value = unlist(params))
+```
+
+### Data Setup
+
+```{r}
+source(params$dataSetup)
+```
+
+```{r}
+addcovar <- qtl2pattern::covar_df_mx(covar)
+```
+
+```{r}
+intcovar <- NULL
+```
+
+### Genome scan information
+
+```{r}
+genoprobs <- query_probs()$probs
+map <- query_probs()$map
+```
+
+```{r}
+(peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
+                            col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
+  dplyr::filter(lodcolumn == pheno_name,
+                chr == chr_id))
+```
+
+```{r}
+if(!nrow(peaks)) {
+  cat("no peaks for", pheno_name, "\n")
+  knitr::knit_exit()
+}
+```
+
+```{r ins_peaks}
+pos_Mbp <- peaks$pos[1]
+```
+
+# Mediation with allele probs.
+
+```{r peak_mar,message=FALSE}
+peak_mar <- qtl2::find_marker(map, chr_id, pos_Mbp)
+ap <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
+```
+
+```{r}
+mrna <- query_mrna(chr_id)
+mrna.annot <- mrna$annot
+```
+
+Find peaks for local mRNA that are close to SNP peak.
+
+```{r}
+epeaks <- 
+  dplyr::filter(
+    mrna$peaks,
+    qtl_chr == chr_id,
+    abs(qtl_pos - peaks$pos) <= params$snpScan)
+med_signif <- which(names(mrna$expr) %in% epeaks$gene_id)
+```
+
+```{r}
+mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$pos)
+driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
+```
+
+### Compare mediation test approaches
+
+Here are four approaches to picking drivers:
+
+- `med`: one driver based on mediator (now preferred method)
+- `tar`: one driver based on target
+- `two`: two drivers, at target and mediator, considered independent
+- `dep`: two drivers, at target and mediator, accounting for dependence
+
+Seems that all four approaches give rather different pvalues.
+
+```{r}
+source("R/med_comp.R")
+med_tests <- med_comp(target = pheno_data[,pheno_name,drop=FALSE],
+         mediator = mrna$expr[, med_signif, drop = FALSE],
+         annotation = mrna.annot,
+         covar_tar = covar,
+         covar_med = covar,
+         kinship = kinship[[chr_id]],
+         intcovar = intcovar,
+         driver = ap,
+         driver_med = driver_med)
+```
+
+Look at best model for four approaches. Notice that `med` has more significant `pvalue`s.
+Note that pvalues have been truncated at `1e-10`.
+
+```{r}
+med_tests$best <-
+  med_tests$best %>%
+  mutate(pvalue = pmax(pvalue, 1e-10))
+med_tests$test <-
+  med_tests$test %>%
+  mutate(pvalue = pmax(pvalue, 1e-10))
+```
+
+
+```{r}
+ggplot(med_tests$best) +
+  aes(LR, -log10(pvalue), color = fit, group = triad) +
+  geom_point(alpha = 0.5) +
+  facet_grid(fit ~ triad)
+```
+
+```{r}
+ggplot(med_tests$best) +
+  aes(qtl_pos, -log10(pvalue), color = fit, group = triad) +
+  geom_vline(xintercept = pos_Mbp, col = "grey") +
+  geom_point(alpha = 0.5) +
+  facet_grid(fit ~ triad)
+```
+
+```{r}
+ggplot(med_tests$best) +
+  aes(qtl_pos, mediation, color = fit, group = triad) +
+  geom_hline(yintercept = peaks$lod[1], col = "grey") +
+  geom_vline(xintercept = pos_Mbp, col = "grey") +
+  geom_point(alpha = 0.5) +
+  facet_grid(fit ~ triad)
+```
+
+Now look at LR and IC for the four causal models going into CMST tests.We compare the `mediator` driver with the other three driver options. What is evident in plots below is that BICs are larger and $p$-values are smaller for the `mediator` driver. Note that the two-driver approach gives similar BIC values to the `mediator` driver, but the $p$-values are more significant in the latter. The dependent drivers approach mostly picks the independent model, which may not be surprising.
+
+```{r}
+tests_mediator <-
+  dplyr::left_join(
+    dplyr::filter(
+      med_tests$test,
+      fit != "mediator"),
+    dplyr::filter(
+      med_tests$test,
+      fit == "mediator"),
+    by = c("id", "model"))
+tests_mediator <-
+  dplyr::mutate(
+    tests_mediator,
+    col = (pvalue.x <= 0.5) + 2 * (pvalue.y <= 0.5),
+    col = factor(c("n.s", "other", "mediator","both")[1+col], c("n.s", "other", "both", "mediator")))
+```
+
+```{r}
+ggplot(tests_mediator) +
+  aes(IC.y, IC.x, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.2) +
+  facet_grid(fit.x ~ model) +
+  xlab("BIC for mediator driver") +
+  ylab("BIC for other drivers")
+```
+
+```{r}
+ggplot(tests_mediator) +
+  aes(pvalue.y, pvalue.x, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.2) +
+  facet_grid(fit.x ~ model) +
+  scale_x_log10() + scale_y_log10() +
+  xlab("pvalue for mediator driver") +
+  ylab("pvalue for other drivers")
+```
+
+# Association mapping
+
+Find best SNP position for target.
+
+```{r}
+snpScan <- as.numeric(params$snpScan)
+if(is.na(snpScan) || snpScan <= 0) {
+  start <- end <- NULL
+} else {
+  start <- pos_Mbp - snpScan
+  end <- pos_Mbp + snpScan
+}
+```
+
+```{r}
+pairprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
+pairmap <- pairprobs$map
+pairprobs <- pairprobs$probs
+```
+
+```{r ins_assoc_chr,fig.width=12}
+if(is.null(start) & is.null(end)) {
+  cat(paste("scan1snps of chromosome", chr_id, "\n"), file = stderr())
+} else {
+  cat(paste("scan1snps of chromosome", chr_id, "from", start, "to", end, "\n"), file = stderr())
+}
+  
+assoc_ins = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
+                      pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
+                      addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
+                      end = end, query_func = query_variant, cores = 4,
+                      keep_all_snps = FALSE)
+autoplot(assoc_ins$lod, assoc_ins$snpinfo, show_all_snps = FALSE)
+```
+
+```{r ins_assoc_rescan,fig.width=12}
+(ts <- qtl2::top_snps(assoc_ins$lod, assoc_ins$snpinfo) %>%
+  arrange(desc(lod))) %>%
+  head(10)
+```
+
+## Mediation with SNP probs
+
+```{r peak_snp,message=FALSE}
+sp_peak <- qtl2::genoprob_to_snpprob(pairprobs, assoc_ins$snpinfo)
+sp <- sp_peak[[chr_id]][,, ts$snp_id[1]]
+```
+
+Find best SNP for each mediator.
+
+```{r}
+assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
+                      pheno = mrna$expr[, med_signif, drop = FALSE],
+                      kinship = kinship[[chr_id]],
+                      addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
+                      end = end, query_func = query_variant, cores = 4,
+                      keep_all_snps = FALSE)
+```
+
+```{r}
+(ts_med <- qtl2pattern::top_snps_all(assoc_med$lod, assoc_med$snpinfo) %>%
+   group_by(pheno, chr) %>%
+   summarize(
+     pos = pos[which.max(lod)],
+     snp_id = snp_id[which.max(lod)],
+     lod = max(lod)) %>%
+   ungroup %>%
+   arrange(desc(lod)))
+```
+
+Set up drivers for mediators.
+
+```{r}
+med_snp <- ts_med$snp_id
+mrna.annot$driver[med_signif] <- med_snp
+driver_med_snp <- sp_peak[[chr_id]][,, unique(med_snp), drop = FALSE]
+```
+
+```{r}
+med_snp_tests <- med_comp(target = pheno_data[,pheno_name,drop=FALSE],
+         mediator = mrna$expr[, med_signif, drop = FALSE],
+         annotation = mrna.annot,
+         covar_tar = covar,
+         covar_med = covar,
+         kinship = kinship[[chr_id]],
+         intcovar = intcovar,
+         driver = sp,
+         driver_med = driver_med_snp)
+```
+
+Look at best model for four approaches. Notice that `med` has more significant `pvalue`s.
+Note that pvalues have been truncated at `1e-10`.
+
+```{r}
+med_snp_tests$best <-
+  med_snp_tests$best %>%
+  mutate(pvalue = pmax(pvalue, 1e-10))
+med_snp_tests$test <-
+  med_snp_tests$test %>%
+  mutate(pvalue = pmax(pvalue, 1e-10))
+```
+
+```{r}
+ggplot(med_snp_tests$best) +
+  aes(LR, -log10(pvalue), color = fit, group = triad) +
+  geom_point(alpha = 0.5) +
+  facet_grid(fit ~ triad)
+```
+
+```{r}
+ggplot(med_snp_tests$best) +
+  aes(qtl_pos, -log10(pvalue), color = fit, group = triad) +
+  geom_vline(xintercept = pos_Mbp, col = "grey") +
+  geom_point(alpha = 0.5) +
+  facet_grid(fit ~ triad)
+```
+
+```{r}
+ggplot(med_snp_tests$best) +
+  aes(qtl_pos, mediation, color = fit, group = triad) +
+  geom_hline(yintercept = peaks$lod[1], col = "grey") +
+  geom_vline(xintercept = pos_Mbp, col = "grey") +
+  geom_point(alpha = 0.5) +
+  facet_grid(fit ~ triad)
+```
+
+Now look at LR and IC for the four causal models going into CMST tests.We compare the `mediator` driver with the other three driver options. What is evident in plots below is that BICs are larger and $p$-values are smaller for the `mediator` driver. Note that the two-driver approach gives similar BIC values to the `mediator` driver, but the $p$-values are more significant in the latter. The dependent drivers approach mostly picks the independent model, which may not be surprising.
+
+```{r}
+tests_snp_mediator <-
+  dplyr::left_join(
+    dplyr::filter(
+      med_snp_tests$test,
+      fit != "mediator"),
+    dplyr::filter(
+      med_snp_tests$test,
+      fit == "mediator"),
+    by = c("id", "model"))
+tests_snp_mediator <-
+  dplyr::mutate(
+    tests_snp_mediator,
+    col = (pvalue.x <= 0.5) + 2 * (pvalue.y <= 0.5),
+    col = factor(c("n.s", "other", "mediator","both")[1+col], c("n.s", "other", "both", "mediator")))
+```
+
+```{r}
+ggplot(tests_snp_mediator) +
+  aes(IC.y, IC.x, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.6) +
+  facet_grid(fit.x ~ model) +
+  xlab("BIC for mediator driver") +
+  ylab("BIC for other drivers")
+```
+
+```{r}
+ggplot(tests_snp_mediator) +
+  aes(pvalue.y, pvalue.x, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.6) +
+  facet_grid(fit.x ~ model) +
+  scale_x_log10() + scale_y_log10() +
+  xlab("pvalue for mediator driver") +
+  ylab("pvalue for other drivers")
+```
+
+# Compare mediation tests with allele and SNP approaches
+
+```{r}
+allele_snp_mediator <-
+  dplyr::left_join(
+    dplyr::filter(
+      med_tests$test,
+      fit == "mediator"),
+    dplyr::filter(
+      med_snp_tests$test,
+      fit == "mediator"),
+    by = c("id", "model","fit"))
+allele_snp_mediator <-
+  dplyr::mutate(
+    allele_snp_mediator,
+    col = (pvalue.x <= 0.5) + 2 * (pvalue.y <= 0.5),
+    col = factor(c("n.s", "allale", "SNP","allele+SNP")[1+col], c("n.s", "allale","allele+SNP", "SNP")))
+```
+
+```{r}
+ggplot(allele_snp_mediator) +
+  aes(IC.x, IC.y, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.6) +
+  facet_grid(. ~ model) +
+  xlab("BIC for allele mediator driver") +
+  ylab("BIC for SNP mediator driver")
+```
+
+```{r}
+ggplot(allele_snp_mediator) +
+  aes(pvalue.x, pvalue.y, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.6) +
+  facet_grid(. ~ model) +
+  scale_x_log10() + scale_y_log10() +
+  xlab("pvalue for allele mediator driver") +
+  ylab("pvlaue for SNP mediator driver")
+```
+
+
+

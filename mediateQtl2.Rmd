@@ -31,12 +31,6 @@ params:
   offset:
     label: Offset width for fine mapping
     value: 2
-  drivers:
-    label: Dual or lone drivers
-    choices:
-    - dual
-    - lone
-    value: dual
   resultpath:
     input: text
     label: Path to put CSV results (none if '')
@@ -75,7 +69,7 @@ title: "`r params$docTitle`"
 author: "`r params$docAuthor`"
 date: "`r  format(Sys.time(), '%d %B %Y')`"
 output:
-  "`r params$docOutput`":
+  html_document:
     toc: true
     toc_depth: 3
     code_folding: hide
@@ -88,14 +82,38 @@ library(ggplot2)
 library(plotly)
 ```
 
-This is built off script developed by Dan Gatti. In Rstudio, use `Knit with Parameters` from <kbd>Knit</kbd> pulldown to adjust parameter settings. See [README.md](README.md) for details.
-
 ```{r}
 pheno_name <- params$pheno_name
 chr_id <- as.character(params$chrID)
 datapath <- params$datapath
 resultpath <- params$resultpath
 ```
+
+This is built off script developed by Dan Gatti. In Rstudio, use `Knit with Parameters` from <kbd>Knit</kbd> pulldown to adjust parameter settings. See [README.md](README.md) for details.
+
+This document has a variety of strategies, but here is current recommendation. Assumed is that we have identified a `target` (`r pheno_name`) and a chromosome (`r chr_id`), and that we have information on peaks for the `target` and potential `mediators`.
+
+- scan for best `mediator` of `target`
+    + use `target` whole genome (allele-based) scan to identify peak
+    + identify `mediators` that have peak within region (`r params$snpScan` Mbp of peak)
+    + use allele probabilities at mediator peaks as `drivers`
+    + use 3-level SNP probabilites at mediator SNP peaks as `drivers`
+    + maybe use 2-driver model but do not simply rely on 1 driver at pheno peak
+- scan for best driver of `target` and `mediator`
+    + use region and 3-level SNP probabilities (as `drivers`) already identified
+    + for each `driver`, compute joint LOD (`undecided` model) of `target` and `mediator`
+    + identify sub-region of highest joint LOD (within 1.5 of peak)
+    + perform CMST on all drivers within sub-region
+    + restrict to drivers that have highest recomputed joint LOD within sub-region
+    + find best `pvalue`s and `triad`, noting SNP distribution pattern (`sdp`)
+
+The reason to do multiple checks is the following:
+
+* allele-based is smoother but cruder: useful for identifying broad region
+* joint LOD identifies most likely region for best fit
+* pattern of missing data important to balance in CMST tests, changing joint LOD
+* need to consider relative magnitude of joint LOD, `sdp` and pvalue together
+    + can get more significant `pvalue` for other `sdp`s that are worse models
 
 ```{r}
 data.frame(params_value = unlist(params))
@@ -105,6 +123,7 @@ data.frame(params_value = unlist(params))
 
 ```{r}
 source(params$dataSetup)
+kinship <- kinship[[chr_id]]
 ```
 
 ```{r}
@@ -164,12 +183,18 @@ med_signif <- which(names(mrna$expr) %in% epeaks$gene_id)
 ```
 
 ```{r}
-if(params$drivers == "dual") {
-  mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$pos)
-  driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
-} else {
-  driver_med <- NULL
-}
+# We are interested in local/cis action, so use pos rather than qtl_pos
+mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$pos)
+driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
+```
+
+Potential mediators located on chromosome with peaks usually at their locus. However, some potential mediators have peaks on their chromosome but at some distance. We focus on drivers that are at the mediator `pos`ition rather than at their QTL.
+
+```{r}
+ggplot(mrna.annot %>%
+         arrange(lod)) +
+  aes(pos, qtl_pos - pos, col=lod) +
+  geom_point(alpha=0.5)
 ```
 
 ```{r med_test,fig.width=9,fig.height=6}
@@ -179,11 +204,11 @@ med_test <- intermediate::mediation_test(
   annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
-  kinship = kinship[[chr_id]],
+  kinship = kinship,
   intcovar = intcovar,
-  driver = ap,
+  driver = NULL,
   driver_med = driver_med)
-ggplotly(autoplot(med_test))
+autoplot(med_test)
 ```
 
 ```{r}
@@ -199,80 +224,19 @@ if(resultpath != "")
                                       paste0(pheno_name, "_", chr_id, "_mediation.csv")))
 ```
 
-```{r}
-if(params$drivers == "dual") {
-  driver <- driver_med[,, dplyr::filter(mrna.annot, id == sum_med$id[1])$driver]
-} else {
-  driver <- ap
-}
-```
-
-```{r med_triad,fig.width=9,fig.height=6}
-med_triad <- intermediate::mediation_triad(
-  target   = pheno_data[,pheno_name,drop=FALSE],
-  mediator = mrna$expr[, sum_med$id[1], drop = FALSE],
-  driver = driver,
-  covar_tar = covar,
-  kinship = kinship[[chr_id]],
-  sdp = sum(2 ^ (4:7)))
-autoplot(med_triad, tname = pheno_name, mname = sum_med$symbol[1], dname = peak_mar)
-```
-
 #### Driver effects by Mediator, Target, Adjusted model.
 
 ```{r}
-meds <- 
-  dplyr::rename(
-    dplyr::mutate(
-      dplyr::select(
-        sum_med,
-        symbol, chr, pos, mediation, pvalue, dplyr::everything()),
-      mediation = mediation / log(10),
-      chr = as.character(chr),
-      LRmed = LRmed / log(10)),
-    lod_adj = "mediation",
-    mediator = "symbol",
-    lod_med = "LRmed")
+ggplot(med_test$best %>%
+         filter(pvalue <= 0.05) %>%
+         mutate(mediation = mediation / log(10))) +
+  aes(mediation, -log10(pvalue), col = biotype) +
+  geom_point()
 ```
 
 ```{r}
-peaks_mod <- 
-  dplyr::rename(
-    dplyr::arrange(
-      dplyr::mutate(
-        peaks,
-        lodcolumn = paste(lodcolumn, chr, sep = "_")),
-      dplyr::desc(lod)),
-    target = "lodcolumn",
-    pos_tar = "pos",
-    lod_tar = "lod",
-    group = "QTL")
-m <- match(LETTERS[1:8], names(peaks_mod))
-names(peaks_mod)[m] <- paste0(LETTERS[1:8], "_p")
-```
-
-```{r}
-out <- 
-  dplyr::left_join(meds, peaks_mod, by = "chr") %>%
-  dplyr::filter(pvalue <= 0.05)
-```
-
-```{r}
-plotly::ggplotly(
-  ggplot2::ggplot(out) +
-    ggplot2::aes(lod_tar - lod_adj, -log10(pvalue), col = biotype,
-                 symbol = mediator, pvalue = pvalue) +
-    ggplot2::geom_point())
-```
-
-```{r}
-tmp <- rep(seq_len(ceiling(nrow(out) / 6)), each = 6, length = nrow(out))
-outp <- split(out, tmp)
-driver_effects <- purrr::map(outp, intermediate::driver_effect)
-```
-
-```{r fig.width = 12, fig.heigth = 9}
-invisible(sapply(driver_effects, function(x) print(intermediate::ggplot_driver_effect(x))))
+med_effects <- intermediate::mediation_effect(med_test)
+autoplot(med_effects)
 ```
 
 ### Association mapping
@@ -303,7 +267,7 @@ if(is.null(start) & is.null(end)) {
 }
   
 assoc_ins = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
+                      pheno = pheno_data[,pheno_name,drop=F], kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
@@ -331,18 +295,16 @@ autoplot(assoc_ins$lod, assoc_ins$snpinfo, patterns = "all", drop_hilit = 5, mai
 ### Top missense, splice or stop SNPs
 
 ```{r ins_top_snps_left}
-left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
+(ts <- left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
           mrna.annot %>% select(id, symbol),
-          by = "id") %>%
+          by = "id")) %>%
   select(snp_id, lod, pos, id, symbol, consequence) %>%
   head(10)
 ```
 
 ```{r}
 if(resultpath != "")
-  write.csv(left_join(ts %>% dplyr::rename(id = "ensembl_gene"),
-          mrna.annot %>% select(id, symbol),
-          by = "id"), 
+  write.csv(ts, 
           file = file.path(params$resultpath, 
                            paste0(pheno_name, "_", chr_id, "_topsnps_peak.csv")))
 ```
@@ -353,36 +315,12 @@ ts %>% dplyr::filter(grepl("splice|missense|stop", consequence))
 
 ### Mediation with SNP probs
 
-```{r peak_snp,message=FALSE}
-sp_peak <- qtl2::genoprob_to_snpprob(pairprobs, assoc_ins$snpinfo)
-peak_snp <- 
-  qtl2::find_index_snp(
-    assoc_ins$snpinfo,
-    qtl2::find_marker(
-      assoc_ins$snpinfo,
-      ts$chr[1], ts$pos[1]))
-sp <- sp_peak[[chr_id]][,, peak_snp]
-```
-
-```{r med2_scan,fig.width=9,fig.height=6}
-med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=FALSE],
-                       mediator = mrna$expr[, med_signif, drop = FALSE],
-                       annotation = mrna.annot,
-                       covar    = addcovar,
-                       driver = sp,
-                       kinship = kinship[[chr_id]],
-                       intcovar = intcovar,
-                       method = "double-lod-diff")
-ggplotly(autoplot(med2_scan) +
-           ggtitle(pheno_name))
-```
-
 Find best SNP for each mediator.
 
 ```{r}
 assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
                       pheno = mrna$expr[, med_signif, drop = FALSE],
-                      kinship = kinship[[chr_id]],
+                      kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
@@ -398,8 +336,9 @@ assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap,
 (ts_med <- ts_med %>%
    group_by(pheno, chr) %>%
    summarize(
-     lod = max(lod),
-     pos = pos[which.max(lod)]) %>%
+     pos = pos[which.max(lod)],
+     snp_id = snp_id[which.max(lod)],
+     lod = max(lod)) %>%
    ungroup %>%
    arrange(desc(lod)))
 ```
@@ -407,18 +346,45 @@ assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap,
 Set up drivers for mediators.
 
 ```{r}
-if(params$drivers == "dual") {
-  med_snp <- 
-    qtl2::find_index_snp(
-      assoc_med$snpinfo,
-      qtl2::find_marker(
-        assoc_med$snpinfo,
-        ts_med$chr, ts_med$pos))
-  mrna.annot$driver[med_signif] <- med_snp
-  driver_med_snp <- sp_peak[[chr_id]][,, unique(med_snp), drop = FALSE]
-} else {
-  driver_med_snp <- sp
-}
+peak_snp <- ts$snp_id[1]
+```
+
+```{r}
+m <- match(mrna.annot$id[med_signif], ts_med$pheno)
+mrna.annot$driver[med_signif] <- ts_med$snp_id[m]
+driver_med_snp <-
+  qtl2::genoprob_to_snpprob(
+    pairprobs, 
+    assoc_ins$snpinfo)[[chr_id]][,, c( peak_snp, unique(ts_med$snp_id)), drop = FALSE]
+```
+
+Mediation scan using best SNP for target `r pheno_name`. Will generally not be best for mediators.
+(Want to change this to using mediator drivers as in mediateOne.Rmd. We use a hidden feature of `mediation_scan`.)
+
+```{r med2_scan,fig.width=9,fig.height=6}
+med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=FALSE],
+                       mediator = mrna$expr[, med_signif, drop = FALSE],
+                       annotation = mrna.annot,
+                       covar    = addcovar,
+                       driver = driver_med_snp,
+                       kinship = kinship,
+                       intcovar = intcovar,
+                       method = "double-lod-diff")
+ggplotly(autoplot(med2_scan) +
+           ggtitle(pheno_name))
+```
+
+```{r medd_scan,fig.width=9,fig.height=6}
+medd_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=FALSE],
+                       mediator = mrna$expr[, med_signif, drop = FALSE],
+                       annotation = mrna.annot,
+                       covar    = addcovar,
+                       driver = driver_med_snp[,,1],
+                       kinship = kinship,
+                       intcovar = intcovar,
+                       method = "double-lod-diff")
+ggplotly(autoplot(medd_scan) +
+           ggtitle(pheno_name))
 ```
 
 ```{r med2_test,fig.width=9,fig.height=6}
@@ -428,11 +394,11 @@ med2_test <- intermediate::mediation_test(
   annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
-  kinship = kinship[[chr_id]],
+  kinship = kinship,
   intcovar = intcovar,
-  driver = sp,
+  driver = NULL,
   driver_med = driver_med_snp)
-ggplotly(autoplot(med2_test))
+autoplot(med2_test)
 ```
 
 ```{r}
@@ -446,12 +412,13 @@ if(resultpath != "")
 ```
 
 ```{r med2_triad,fig.width=9,fig.height=6}
+m <- match(sum_med$id[1], ts_med$pheno)
 med2_triad <- intermediate::mediation_triad(
   target   = pheno_data[,pheno_name,drop=FALSE],
   mediator = mrna$expr[, sum_med$id[1], drop = FALSE],
-  driver = sp,
+  driver = driver_med_snp[,, ts_med$snp_id[m]],
   covar_tar = covar,
-  kinship = kinship[[chr_id]],
+  kinship = kinship,
   sdp = ts$sdp,
   label_fn = NULL,
   group_fn = NULL)
@@ -466,66 +433,15 @@ if(params$extraSteps != "")
 Driver effects by Mediator, Target, Adjusted model.
 
 ```{r}
-meds_snp <- 
-  dplyr::rename(
-    dplyr::mutate(
-      dplyr::select(
-        sum_med2,
-        symbol, chr, pos, mediation, pvalue, dplyr::everything()),
-      mediation = mediation / log(10),
-      chr = as.character(chr),
-      LRmed = LRmed / log(10)),
-    lod_adj = "mediation",
-    mediator = "symbol",
-    lod_med = "LRmed",
-    A = "AA",
-    H = "AB",
-    B = "BB",
-    A_m = "AA_m",
-    H_m = "AB_m",
-    B_m = "BB_m")
+ggplot(med2_test$best %>%
+         filter(pvalue <= 0.05) %>%
+         mutate(mediation = mediation / log(10))) +
+  aes(mediation, -log10(pvalue), col = biotype) +
+  geom_point()
 ```
 
 ```{r}
-peaks_snp <- intermediate::fitQtl2(sp, 
-                                   pheno_data[, pheno_name, drop = FALSE],
-                                   kinship[[chr_id]],
-                                   covar)
-peaks_snp <- data.frame(target = paste(pheno_name, chr_id, sep = "_"),
-                        chr = chr_id,
-                        pos_tar = ts$pos[1],
-                        lod_tar = peaks_snp$LR / log(10),
-                        group = 1,
-                        as.data.frame(t(peaks_snp$coef[1:3])),
-                        stringsAsFactors = FALSE)
-peaks_snp <- 
-  dplyr::rename(
-    peaks_snp,
-    A_p = "AA",
-    H_p = "AB",
-    B_p = "BB")
-```
-
-```{r}
-out_snp <- 
-  dplyr::left_join(meds_snp, peaks_snp, by = "chr") %>%
-  dplyr::filter(pvalue <= 0.05)
-```
-
-```{r}
-plotly::ggplotly(
-  ggplot2::ggplot(out_snp) +
-    ggplot2::aes(lod_tar - lod_adj, -log10(pvalue), col = biotype, symbol = mediator) +
-    ggplot2::geom_point())
-```
-
-```{r}
-tmp <- rep(seq_len(ceiling(nrow(out_snp) / 6)), each = 6, length = nrow(out_snp))
-outp <- split(out_snp, tmp)
-driver_effects <- purrr::map(outp, intermediate::driver_effect, c("A","H","B"))
-```
-
-```{r fig.width = 12, fig.heigth = 9}
-invisible(sapply(driver_effects, function(x) print(intermediate::ggplot_driver_effect(x))))
+med_effects <- intermediate::mediation_effect(med2_test)
+autoplot(med_effects)
 ```
 
