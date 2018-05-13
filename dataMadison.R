@@ -13,7 +13,7 @@ print(project_dir <- file.path(taxa_dir,
                          project_info$project))
 
 analyses <- readRDS(file.path(project_dir, "analyses.rds")) %>%
-  filter(pheno == pheno_name)
+  filter(pheno == target_name)
 pheno_data <- readRDS(file.path(project_dir, "pheno_data.rds")) %>%
   qtl2pattern::pheno_trans(analyses$pheno, 
                            analyses$transf,

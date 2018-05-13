@@ -19,7 +19,7 @@ pheno_data <- readRDS(exvivo)
 
 covar_info <- read.csv("local/Jax/islet_secr_for_brian.csv")
 covar_names <- unlist(stringr::str_split(
-  (covar_info %>% dplyr::filter(data_name == pheno_name))$covar,":"))
+  (covar_info %>% dplyr::filter(data_name == target_name))$covar,":"))
 form <- formula(paste("~", paste(covar_names, collapse = "+")))
 covar = model.matrix(form, data = pheno_data)[,-1]
 

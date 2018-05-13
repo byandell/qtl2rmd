@@ -10,7 +10,7 @@ load("D:/Attie_Islet_Secretion/Attie_islet_secr_data_v2.Rdata")
 pheno_data <- pheno_clin
 
 covar = model.matrix(~sex + DOwave, data = pheno_data)[,-1]
-pheno_data[, pheno_name] = log(pheno_data[, pheno_name])
+pheno_data[, target_name] = log(pheno_data[, target_name])
 kinship <- K
 
 #############################################################################

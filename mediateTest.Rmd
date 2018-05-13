@@ -1,6 +1,6 @@
 ---
 params:
-  pheno_name:
+  target_name:
     label: Phenotype
     value: GLP1_G83_ins_secrete_gm
   chrID:
@@ -82,10 +82,8 @@ library(ggplot2)
 library(plotly)
 ```
 
-
-
 ```{r}
-pheno_name <- params$pheno_name
+target_name <- params$target_name
 chr_id <- as.character(params$chrID)
 datapath <- params$datapath
 resultpath <- params$resultpath
@@ -99,6 +97,11 @@ data.frame(params_value = unlist(params))
 
 ```{r}
 source(params$dataSetup)
+kinship <- kinship[[chr_id]]
+```
+
+```{r}
+target <- pheno_data[, target_name, drop = FALSE]
 ```
 
 ```{r}
@@ -119,13 +122,13 @@ map <- query_probs()$map
 ```{r}
 (peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
                             col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
-  dplyr::filter(lodcolumn == pheno_name,
+  dplyr::filter(lodcolumn == target_name,
                 chr == chr_id))
 ```
 
 ```{r}
 if(!nrow(peaks)) {
-  cat("no peaks for", pheno_name, "\n")
+  cat("no peaks for", target_name, "\n")
   knitr::knit_exit()
 }
 ```
@@ -134,33 +137,54 @@ if(!nrow(peaks)) {
 pos_Mbp <- peaks$pos[1]
 ```
 
-# Mediation with allele probs.
-
 ```{r peak_mar,message=FALSE}
 peak_mar <- qtl2::find_marker(map, chr_id, pos_Mbp)
 ap <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
 ```
 
+### mRNA information
+
 ```{r}
 mrna <- query_mrna(chr_id)
-mrna.annot <- mrna$annot
 ```
 
 Find peaks for local mRNA that are close to SNP peak.
 
 ```{r}
-epeaks <- 
-  dplyr::filter(
+med_signif <- 
+  (dplyr::filter(
     mrna$peaks,
     qtl_chr == chr_id,
-    abs(qtl_pos - peaks$pos) <= params$snpScan)
-med_signif <- which(names(mrna$expr) %in% epeaks$gene_id)
+    abs(qtl_pos - pos_Mbp) <= params$snpScan,
+    gene_start >= pos_Mbp - params$snpScan,
+    gene_end <= pos_Mbp + params$snpScan))$gene_id
 ```
 
 ```{r}
-mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$pos)
+mrna.expr <- mrna$expr[, med_signif, drop = FALSE]
+mrna.annot <- 
+  dplyr::filter(
+    mrna$annot,
+    id %in% med_signif)
+rm(mrna)
+```
+
+Potential mediators located on chromosome with peaks usually at their locus. However, some potential mediators have peaks on their chromosome but at some distance. We focus on drivers that are at the mediator `pos`ition rather than at their QTL.
+
+```{r}
+ggplot(mrna.annot %>%
+         arrange(lod)) +
+  aes(pos, qtl_pos, col=lod) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha=0.5)
+```
+
+```{r}
+mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
 driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
 ```
+
+# Mediation with allele probs.
 
 ### Compare mediation test approaches
 
@@ -175,12 +199,12 @@ Seems that all four approaches give rather different pvalues.
 
 ```{r}
 source("R/med_comp.R")
-med_tests <- med_comp(target = pheno_data[,pheno_name,drop=FALSE],
-         mediator = mrna$expr[, med_signif, drop = FALSE],
+med_tests <- med_comp(target = target,
+         mediator = mrna.expr,
          annotation = mrna.annot,
          covar_tar = covar,
          covar_med = covar,
-         kinship = kinship[[chr_id]],
+         kinship = kinship,
          intcovar = intcovar,
          driver = ap,
          driver_med = driver_med)
@@ -291,7 +315,7 @@ if(is.null(start) & is.null(end)) {
 }
   
 assoc_ins = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = pheno_data[,pheno_name,drop=F], kinship = kinship[[chr_id]],
+                      pheno = target, kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
@@ -315,8 +339,8 @@ Find best SNP for each mediator.
 
 ```{r}
 assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = mrna$expr[, med_signif, drop = FALSE],
-                      kinship = kinship[[chr_id]],
+                      pheno = mrna.expr,
+                      kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
@@ -337,17 +361,17 @@ Set up drivers for mediators.
 
 ```{r}
 med_snp <- ts_med$snp_id
-mrna.annot$driver[med_signif] <- med_snp
+mrna.annot$driver <- med_snp
 driver_med_snp <- sp_peak[[chr_id]][,, unique(med_snp), drop = FALSE]
 ```
 
 ```{r}
-med_snp_tests <- med_comp(target = pheno_data[,pheno_name,drop=FALSE],
-         mediator = mrna$expr[, med_signif, drop = FALSE],
+med_snp_tests <- med_comp(target = target,
+         mediator = mrna.expr,
          annotation = mrna.annot,
          covar_tar = covar,
          covar_med = covar,
-         kinship = kinship[[chr_id]],
+         kinship = kinship,
          intcovar = intcovar,
          driver = sp,
          driver_med = driver_med_snp)
@@ -469,5 +493,104 @@ ggplot(allele_snp_mediator) +
   ylab("pvlaue for SNP mediator driver")
 ```
 
+# Genome scans for imputed SDP
+
+This is experimental. I had hoped it would provide an elegant solution, but, alas, no.
+
+```{r}
+sdpprobs <- 
+  qtl2::genoprob_to_snpprob(
+    pairprobs[,chr_id], 
+    assoc_ins$snpinfo %>% 
+      mutate(sdp = ts$sdp[1]))
+```
+
+```{r}
+scan1_sdp <- qtl2::scan1(genoprobs = sdpprobs, 
+                      pheno = target, kinship = kinship,
+                      addcovar = addcovar, intcovar = intcovar)
+tmp <- assoc_ins$snpinfo$pos
+names(tmp) <- rownames(scan1_sdp)
+autoplot(scan1_sdp, tmp)
+```
+
+```{r}
+patprobs <- 
+  qtl2pattern::genoprob_to_patternprob(
+    pairprobs[,chr_id], ts$sdp[1])
+```
+
+```{r}
+scan1_pat <- qtl2::scan1(genoprobs = patprobs, 
+                      pheno = target, kinship = kinship,
+                      addcovar = addcovar, intcovar = intcovar)
+autoplot(scan1_pat, map)
+```
+
+Want to reproduce analysis with scan1 here.
+
+```{r}
+mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
+driver_signif <- mrna.annot$driver
+m <- which(driver_signif %in% dimnames(patprobs[[chr_id]])[[3]])
+driver_signif <- driver_signif[m]
+driver_pat <- patprobs[[chr_id]][,,unique(c(peak_mar, driver_signif)), drop = FALSE]
+```
+
+```{r}
+med_pat <- intermediate::mediation_test(target = target,
+         mediator = mrna.expr[, m, drop = FALSE],
+         annotation = mrna.annot,
+         covar_tar = covar,
+         covar_med = covar,
+         kinship = kinship,
+         intcovar = intcovar,
+         driver = NULL,
+         driver_med = driver_pat)
+```
+
+```{r}
+autoplot(med_pat)
+```
+
+```{r}
+(sum_pat <- summary(med_pat))
+```
+
+```{r}
+allele_pat_mediator <-
+  dplyr::left_join(
+    dplyr::filter(
+      med_snp_tests$test,
+      fit == "mediator"),
+    med_pat$test,
+    by = c("id", "model"))
+allele_pat_mediator <-
+  dplyr::mutate(
+    allele_pat_mediator,
+    col = (pvalue.x <= 0.5) + 2 * (pvalue.y <= 0.5),
+    col = factor(c("n.s", "allale", "SNP","allele+SNP")[1+col], c("n.s", "allale","allele+SNP", "SNP")))
+```
+
+```{r}
+ggplot(allele_pat_mediator) +
+  aes(IC.x, IC.y, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.6) +
+  facet_grid(. ~ model) +
+  xlab("BIC for SNP mediator driver") +
+  ylab("BIC for pattern mediator driver")
+```
+
+```{r}
+ggplot(allele_snp_mediator) +
+  aes(pvalue.x, pvalue.y, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.6) +
+  facet_grid(. ~ model) +
+  scale_x_log10() + scale_y_log10() +
+  xlab("pvalue for SNP mediator driver") +
+  ylab("pvlaue for pattern mediator driver")
+```
 
 

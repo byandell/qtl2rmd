@@ -1,6 +1,6 @@
 ---
 params:
-  pheno_name:
+  target_name:
     label: Phenotype
     value: GLP1_G83_ins_secrete_gm
   chrID:
@@ -83,7 +83,7 @@ library(plotly)
 ```
 
 ```{r}
-pheno_name <- params$pheno_name
+target_name <- params$target_name
 chr_id <- as.character(params$chrID)
 datapath <- params$datapath
 resultpath <- params$resultpath
@@ -91,7 +91,7 @@ resultpath <- params$resultpath
 
 This is built off script developed by Dan Gatti. In Rstudio, use `Knit with Parameters` from <kbd>Knit</kbd> pulldown to adjust parameter settings. See [README.md](README.md) for details.
 
-This document has a variety of strategies, but here is current recommendation. Assumed is that we have identified a `target` (`r pheno_name`) and a chromosome (`r chr_id`), and that we have information on peaks for the `target` and potential `mediators`.
+This document has a variety of strategies, but here is current recommendation. Assumed is that we have identified a `target` (`r target_name`) and a chromosome (`r chr_id`), and that we have information on peaks for the `target` and potential `mediators`.
 
 - scan for best `mediator` of `target`
     + use `target` whole genome (allele-based) scan to identify peak
@@ -127,6 +127,10 @@ kinship <- kinship[[chr_id]]
 ```
 
 ```{r}
+target <- pheno_data[, target_name, drop = FALSE]
+```
+
+```{r}
 addcovar <- qtl2pattern::covar_df_mx(covar)
 ```
 
@@ -144,13 +148,13 @@ map <- query_probs()$map
 ```{r}
 (peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
                             col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
-  dplyr::filter(lodcolumn == pheno_name,
+  dplyr::filter(lodcolumn == target_name,
                 chr == chr_id))
 ```
 
 ```{r}
 if(!nrow(peaks)) {
-  cat("no peaks for", pheno_name, "\n")
+  cat("no peaks for", target_name, "\n")
   knitr::knit_exit()
 }
 ```
@@ -159,48 +163,49 @@ if(!nrow(peaks)) {
 pos_Mbp <- peaks$pos[1]
 ```
 
-### Mediation with allele probs.
-
 ```{r peak_mar,message=FALSE}
 peak_mar <- qtl2::find_marker(map, chr_id, pos_Mbp)
 ap <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
 ```
 
+### mRNA information
+
 ```{r}
 mrna <- query_mrna(chr_id)
-mrna.annot <- mrna$annot
 ```
 
 Find peaks for local mRNA that are close to SNP peak.
 
 ```{r}
-epeaks <- 
-  dplyr::filter(
+med_signif <- 
+  (dplyr::filter(
     mrna$peaks,
     qtl_chr == chr_id,
-    abs(qtl_pos - peaks$pos) <= params$snpScan)
-med_signif <- which(names(mrna$expr) %in% epeaks$gene_id)
+    abs(qtl_pos - pos_Mbp) <= params$snpScan,
+    gene_start >= pos_Mbp - params$snpScan,
+    gene_end <= pos_Mbp + params$snpScan))$gene_id
 ```
 
 ```{r}
-# We are interested in local/cis action, so use pos rather than qtl_pos
-mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$pos)
+mrna.expr <- mrna$expr[, med_signif, drop = FALSE]
+mrna.annot <- 
+  dplyr::filter(
+    mrna$annot,
+    id %in% med_signif)
+rm(mrna)
+```
+
+### Mediation with allele probs.
+
+```{r}
+mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
 driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
-```
-
-Potential mediators located on chromosome with peaks usually at their locus. However, some potential mediators have peaks on their chromosome but at some distance. We focus on drivers that are at the mediator `pos`ition rather than at their QTL.
-
-```{r}
-ggplot(mrna.annot %>%
-         arrange(lod)) +
-  aes(pos, qtl_pos - pos, col=lod) +
-  geom_point(alpha=0.5)
 ```
 
 ```{r med_test,fig.width=9,fig.height=6}
 med_test <- intermediate::mediation_test(
-  target   = pheno_data[,pheno_name,drop=FALSE],
-  mediator = mrna$expr[, med_signif, drop = FALSE],
+  target   = target,
+  mediator = mrna.expr,
   annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
@@ -221,7 +226,7 @@ autoplot(med_test)
 ```{r}
 if(resultpath != "")
   write.csv(sum_med, file = file.path(params$resultpath,
-                                      paste0(pheno_name, "_", chr_id, "_mediation.csv")))
+                                      paste0(target_name, "_", chr_id, "_mediation.csv")))
 ```
 
 #### Driver effects by Mediator, Target, Adjusted model.
@@ -267,7 +272,7 @@ if(is.null(start) & is.null(end)) {
 }
   
 assoc_ins = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = pheno_data[,pheno_name,drop=F], kinship = kinship,
+                      pheno = target, kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
@@ -283,13 +288,13 @@ autoplot(assoc_ins$lod, assoc_ins$snpinfo, show_all_snps = FALSE)
 ```{r}
 if(resultpath != "")
   write.csv(ts, file = file.path(params$resultpath,
-                                 paste0(pheno_name, "_", chr_id, "_topsnps.csv")))
+                                 paste0(target_name, "_", chr_id, "_topsnps.csv")))
 ```
 
 View patterns in top SNPs.
 
 ```{r assoc_ins_pattern,fig.width=9,fig.height=6}
-autoplot(assoc_ins$lod, assoc_ins$snpinfo, patterns = "all", drop_hilit = 5, main = pheno_name)
+autoplot(assoc_ins$lod, assoc_ins$snpinfo, patterns = "all", drop_hilit = 5, main = target_name)
 ```
 
 ### Top missense, splice or stop SNPs
@@ -306,7 +311,7 @@ autoplot(assoc_ins$lod, assoc_ins$snpinfo, patterns = "all", drop_hilit = 5, mai
 if(resultpath != "")
   write.csv(ts, 
           file = file.path(params$resultpath, 
-                           paste0(pheno_name, "_", chr_id, "_topsnps_peak.csv")))
+                           paste0(target_name, "_", chr_id, "_topsnps_peak.csv")))
 ```
 
 ```{r}
@@ -319,7 +324,7 @@ Find best SNP for each mediator.
 
 ```{r}
 assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = mrna$expr[, med_signif, drop = FALSE],
+                      pheno = mrna.expr,
                       kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
@@ -350,20 +355,20 @@ peak_snp <- ts$snp_id[1]
 ```
 
 ```{r}
-m <- match(mrna.annot$id[med_signif], ts_med$pheno)
-mrna.annot$driver[med_signif] <- ts_med$snp_id[m]
+m <- match(mrna.annot$id, ts_med$pheno)
+mrna.annot$driver <- ts_med$snp_id[m]
 driver_med_snp <-
   qtl2::genoprob_to_snpprob(
     pairprobs, 
     assoc_ins$snpinfo)[[chr_id]][,, c( peak_snp, unique(ts_med$snp_id)), drop = FALSE]
 ```
 
-Mediation scan using best SNP for target `r pheno_name`. Will generally not be best for mediators.
+Mediation scan using best SNP for target `r target_name`. Will generally not be best for mediators.
 (Want to change this to using mediator drivers as in mediateOne.Rmd. We use a hidden feature of `mediation_scan`.)
 
 ```{r med2_scan,fig.width=9,fig.height=6}
-med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=FALSE],
-                       mediator = mrna$expr[, med_signif, drop = FALSE],
+med2_scan <- intermediate::mediation_scan(target  = target,
+                       mediator = mrna.expr,
                        annotation = mrna.annot,
                        covar    = addcovar,
                        driver = driver_med_snp,
@@ -371,12 +376,12 @@ med2_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=
                        intcovar = intcovar,
                        method = "double-lod-diff")
 ggplotly(autoplot(med2_scan) +
-           ggtitle(pheno_name))
+           ggtitle(target_name))
 ```
 
 ```{r medd_scan,fig.width=9,fig.height=6}
-medd_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=FALSE],
-                       mediator = mrna$expr[, med_signif, drop = FALSE],
+medd_scan <- intermediate::mediation_scan(target  = target,
+                       mediator = mrna.expr,
                        annotation = mrna.annot,
                        covar    = addcovar,
                        driver = driver_med_snp[,,1],
@@ -384,13 +389,13 @@ medd_scan <- intermediate::mediation_scan(target  = pheno_data[,pheno_name,drop=
                        intcovar = intcovar,
                        method = "double-lod-diff")
 ggplotly(autoplot(medd_scan) +
-           ggtitle(pheno_name))
+           ggtitle(target_name))
 ```
 
 ```{r med2_test,fig.width=9,fig.height=6}
 med2_test <- intermediate::mediation_test(
-  target   = pheno_data[,pheno_name,drop=FALSE],
-  mediator = mrna$expr[, med_signif, drop = FALSE],
+  target   = target,
+  mediator = mrna.expr,
   annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
@@ -408,21 +413,21 @@ autoplot(med2_test)
 ```{r}
 if(resultpath != "")
   write.csv(sum_med2, file = file.path(params$resultpath,
-                                       paste0(pheno_name, "_", chr_id, "_mediation_snp.csv")))
+                                       paste0(target_name, "_", chr_id, "_mediation_snp.csv")))
 ```
 
 ```{r med2_triad,fig.width=9,fig.height=6}
 m <- match(sum_med$id[1], ts_med$pheno)
 med2_triad <- intermediate::mediation_triad(
-  target   = pheno_data[,pheno_name,drop=FALSE],
-  mediator = mrna$expr[, sum_med$id[1], drop = FALSE],
+  target   = target,
+  mediator = mrna.expr[, sum_med$id[1], drop = FALSE],
   driver = driver_med_snp[,, ts_med$snp_id[m]],
   covar_tar = covar,
   kinship = kinship,
   sdp = ts$sdp,
   label_fn = NULL,
   group_fn = NULL)
-autoplot(med2_triad, tname = pheno_name, mname = sum_med$symbol[1], dname = peak_snp)
+autoplot(med2_triad, tname = target_name, mname = sum_med$symbol[1], dname = peak_snp)
 ```
 
 ```{r}
