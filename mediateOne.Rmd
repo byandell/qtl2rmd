@@ -62,12 +62,6 @@ params:
   showPeaks:
     label: Show highest peaks (0=no, n=number to show)
     value: 0
-  useIntcov:
-    choices:
-    - no
-    - yes
-    label: Use interacting covariate (sex)?
-    value: no
   extraSteps:
     label: Exra steps file (optional)
     value: ''
@@ -130,7 +124,7 @@ source(params$dataSetup)
 ```
 
 ```{r}
-target <- pheno_data[, target_name, drop = FALSE]
+target <- as.matrix(pheno_data[, target_name, drop = FALSE])
 rm(pheno_data)
 ```
 
@@ -139,12 +133,9 @@ addcovar <- qtl2pattern::covar_df_mx(covar)
 ```
 
 ```{r}
-intcovar <- NULL
-```
-
-```{r}
-genoprobs <- query_probs()$probs
-map <- query_probs()$map
+map <- query_probs(chr_id)
+genoprobs <- map$probs
+map <- map$map
 kinship <- kinship[[chr_id]]
 ```
 
@@ -200,7 +191,7 @@ mrna_pos <-
 ```
 
 ```{r}
-mrna.expr <- mrna$expr[, mrna_id, drop = FALSE]
+mrna.expr <- as.matrix(mrna$expr[, mrna_id, drop = FALSE])
 mrna.annot <- 
   dplyr::filter(
     mrna$annot,
@@ -212,33 +203,58 @@ This is built off script developed by Dan Gatti, revised and extended by Brian Y
 
 ## Genome allele scan on chr `r chr_id`
 
+```{r}
+m <- qtl2::get_common_ids(genoprobs,
+                          target,
+                          addcovar,
+                          mrna.expr,
+                          complete.cases = TRUE)
+```
+
+```{r}
+# Reduce to common IDs
+genoprobs <- subset(genoprobs, ind = m)
+target <- target[m,, drop = FALSE]
+mediator <- mrna.expr[m,, drop = FALSE]
+kinship <- qtl2::decomp_kinship(kinship[m,m])
+addcovar <- addcovar[m,, drop=FALSE]
+```
+
+
 ```{r fig.width=12}
-qtl_tar = qtl2::scan1(genoprobs = subset(genoprobs, chr = chr_id),
-                      pheno = target, 
-            kinship = kinship, addcovar = addcovar, intcovar = intcovar, cores = 2)
+qtl_tar <-
+  qtl2::scan1(
+    genoprobs = genoprobs,
+    pheno = target, 
+    kinship = kinship, addcovar = addcovar, cores = 2)
 ```
 
 The mediator `r mediator_name` has a peak nearby at `r mrna_pos`.
 
 ```{r fig.width=12}
-qtl_med = qtl2::scan1(genoprobs = subset(genoprobs, chr = chr_id),
-                      pheno = mrna.expr, 
-            kinship = kinship, addcovar = addcovar, intcovar = intcovar, cores = 2)
+qtl_med <-
+  qtl2::scan1(
+    genoprobs = genoprobs,
+    pheno = mediator, 
+    kinship = kinship, addcovar = addcovar, cores = 2)
 ```
 
 It is useful to look at the genome scan of target adjusted by the mediator, to see that most of the signal is removed.
 
-```{r}
-m <- match(rownames(addcovar), rownames(mrna.expr), nomatch = 0)
-medcovar <- cbind(addcovar[m>0,, drop = FALSE],
-                  mrna.expr[m,])
+```{r fig.width=12}
+qtl_tar_med <-
+  qtl2::scan1(
+    genoprobs = genoprobs,
+    pheno = target, 
+    kinship = kinship, addcovar = cbind(addcovar, mediator), cores = 2)
 ```
 
 ```{r fig.width=12}
-qtl_tar_med = qtl2::scan1(genoprobs = subset(genoprobs, chr = chr_id),
-                      pheno = target, 
-            kinship = kinship,
-            addcovar = medcovar, intcovar = intcovar, cores = 2)
+qtl_med_tar <-
+  qtl2::scan1(
+    genoprobs = genoprobs,
+    pheno = mediator, 
+    kinship = kinship, addcovar = cbind(addcovar, target), cores = 2)
 ```
 
 ```{r fig.width=12}
@@ -250,7 +266,7 @@ autoplot(tmp, map, lodcolumn = 1:3, main = paste(target_name, "given", mediator_
 
 ```{r}
 # Relationship $T\vert M$
-t.m <- qtl2::fit1(cbind(1, as.matrix(mrna.expr)),
+t.m <- qtl2::fit1(cbind(1, as.matrix(mediator)),
                   target,
                   kinship,
                   addcovar)
@@ -261,7 +277,7 @@ t.m <- t.m$lod
 ```{r}
 # Relationship c
 m.t <- qtl2::fit1(cbind(1, as.matrix(target)),
-                  mrna.expr,
+                  mediator,
                   kinship,
                   addcovar)$lod
 ```
@@ -276,17 +292,24 @@ penalty <- c(nmar, nmar, 2*(nmar-1), 2*nmar-1,0) * log10(nind) / 2
 ```
 
 ```{r}
-qtl_cmst <- cbind(qtl_med, qtl_tar, qtl_tar, qtl_tar_med, qtl_tar)
-colnames(qtl_cmst) <- c("causal","reactive","independent","undecided","mediation")
+qtl_cmst <- cbind(qtl_med, qtl_tar, qtl_tar, qtl_tar_med, qtl_tar, qtl_med_tar)
+colnames(qtl_cmst) <- c("causal","reactive","independent","undecided","mediation","joint")
 qtl_cmst[,1] <- t.m + qtl_med[,1]
 qtl_cmst[,2] <- m.t + qtl_tar[,1]
 qtl_cmst[,3] <- qtl_tar[,1] + qtl_med[,1] 
 qtl_cmst[,4] <- qtl_tar_med[,1] + t.m + qtl_med[,1] 
 qtl_cmst[,5] <- qtl_tar[,1] - qtl_tar_med[,1]
+qtl_cmst[,6] <- qtl_med_tar[,1] + m.t + qtl_tar[,1]
 ```
 
 ```{r}
 rm(qtl_tar, qtl_med, qtl_tar_med)
+```
+
+```{r fig.width=12}
+autoplot(qtl_cmst, map, lodcolumn = c(4,6),
+         main = paste(target_name, "given", mediator_name)) +
+  geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
 ```{r fig.width=12}
@@ -330,12 +353,11 @@ mrna_driver <- (mrna.annot %>% filter(symbol == mediator_name))$driver
 
 ```{r}
 med_med <- intermediate::mediation_test(target = target,
-         mediator = mrna.expr,
+         mediator = mediator,
          annotation = mrna.annot,
          covar_tar = covar,
          covar_med = covar,
          kinship = kinship,
-         intcovar = intcovar,
          driver = genoprobs[[chr_id]][,,mrna_driver])
 ```
 
@@ -352,7 +374,7 @@ Here is a plot of allele effects adjusted by mediator at this peak position.
 
 ```{r fig.width=12}
 med_triad <- intermediate::mediation_triad(target = target,
-         mediator = mrna.expr,
+         mediator = mediator,
          driver = genoprobs[[chr_id]][,,mrna_driver],
          sdp = NULL,
          covar_tar = addcovar,
@@ -378,16 +400,16 @@ pairprobs <- pairprobs$probs
 assoc_tar = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
                       pheno = target,
                       kinship = kinship,
-                      addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
+                      addcovar = addcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
 ```
 
 ```{r assoc_med,fig.width=12}
 assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = mrna.expr,
+                      pheno = mediator,
                       kinship = kinship,
-                      addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
+                      addcovar = addcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
 ```
@@ -396,7 +418,7 @@ assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap,
 assoc_tar_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
                       pheno = target,
                       kinship = kinship,
-                      addcovar = medcovar, intcovar = intcovar, chr = chr_id, start = start,
+                      addcovar = cbind(addcovar, mediator), chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
                       keep_all_snps = FALSE)
 ```
@@ -524,12 +546,11 @@ tar_test <- list()
 for(i in peak_snps) {
   tar_test[[i]] <- intermediate::mediation_test(
     target = target,
-         mediator = mrna.expr,
+         mediator = mediator,
          annotation = mrna.annot,
          covar_tar = covar,
          covar_med = covar,
          kinship = kinship,
-         intcovar = intcovar,
          driver = sp[,,i])
 }
 ```
@@ -552,15 +573,15 @@ sp <- qtl2::genoprob_to_snpprob(pairprobs, assoc_cmst$snpinfo)[[chr_id]]
 ```
 
 ```{r}
-mediator <- mrna.expr[, rep(mrna_id, dim(sp)[3]), drop = FALSE]
-colnames(mediator) <- dimnames(sp)[[3]]
+mediators <- mediator[, rep(mrna_id, dim(sp)[3]), drop = FALSE]
+colnames(mediators) <- dimnames(sp)[[3]]
 ```
 
 ```{r}
 m <- match(mrna_id, mrna.annot$id)
-annotation <- mrna.annot[rep(m, ncol(mediator)),]
-annotation$id <- colnames(mediator)
-annotation$driver <- colnames(mediator)
+annotation <- mrna.annot[rep(m, ncol(mediators)),]
+annotation$id <- colnames(mediators)
+annotation$driver <- colnames(mediators)
 annotation$pos <- assoc_cmst$snpinfo$pos
 annotation$qtl_pos <- NULL
 annotation$qtl_lod <- NULL
@@ -582,12 +603,11 @@ m <- which(annotation$pos >= rng[1] & annotation$pos <= rng[2])
 ```{r}
 med_test_scan <- intermediate::mediation_test(
     target = target,
-    mediator = mediator[,m],
+    mediator = mediators[,m],
     annotation = annotation[m,],
     covar_tar = covar,
     covar_med = covar,
     kinship = kinship,
-    intcovar = intcovar,
     driver = NULL,
     driver_med = sp[,,m])
 ```
@@ -650,7 +670,7 @@ We look again at the mediation triad plots of data. The first uses the SNP at th
 
 ```{r fig.width=12}
 med_triad <- intermediate::mediation_triad(target = target,
-         mediator = mrna.expr,
+         mediator = mediator,
          driver = genoprobs[[chr_id]][,,mrna_driver],
          sdp = ts$sdp[1],
          covar_tar = addcovar,
@@ -663,7 +683,7 @@ This second set of plots uses the best SNP for the causal model.
 
 ```{r fig.width=12}
 med_snp_triad <- intermediate::mediation_triad(target = target,
-         mediator = mrna.expr,
+         mediator = mediator,
          driver = sp[,, best_snp$id[1]],
          sdp = best_snp$sdp[1],
          covar_tar = addcovar,
@@ -686,13 +706,13 @@ patprobs <-
 ```{r fig.width=12}
 pat_tar <- qtl2::scan1(genoprobs = patprobs, 
                       pheno = target, kinship = kinship,
-                      addcovar = addcovar, intcovar = intcovar)
+                      addcovar = addcovar)
 pat_med = qtl2::scan1(genoprobs = patprobs,
-                      pheno = mrna.expr, kinship = kinship,
-                      addcovar = addcovar, intcovar = intcovar)
+                      pheno = mediator, kinship = kinship,
+                      addcovar = addcovar)
 pat_tar_med = qtl2::scan1(genoprobs = patprobs,
                       pheno = target, kinship = kinship,
-                      addcovar = medcovar, intcovar = intcovar)
+                      addcovar = cbind(addcovar, mediator))
 tmp <- cbind(pat_tar, pat_med, pat_tar_med)
 colnames(tmp) <- c("target","mediator","adjusted")
 autoplot(tmp, map, lodcolumn = 1:3, main = paste(target_name, "given", mediator_name))
@@ -743,12 +763,11 @@ driver_pat <- patprobs[[chr_id]][,,unique(c(peak_mar, driver_signif)), drop = FA
 
 ```{r}
 med_pat <- intermediate::mediation_test(target = target,
-         mediator = mrna.expr[, m, drop = FALSE],
+         mediator = mediator,
          annotation = mrna.annot,
          covar_tar = covar,
          covar_med = covar,
          kinship = kinship,
-         intcovar = intcovar,
          driver = NULL,
          driver_med = driver_pat)
 ```

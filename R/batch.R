@@ -21,13 +21,14 @@ for(i in seq_along(pheno_names)) {
 
   # Preset any `params` parameters you like
   param_vals <- list(
-    pheno_name = pheno_names[i],
+    target_name = pheno_names[i],
     dataSetup = "dataJaxMadison.R",
     coefType = "coef",
     chrID = chr_names[i],
-    resultpath = "batch2")
+    resultpath = "batch3")
     
-  out_filename <- paste0("batch2/", pheno_names[i], "_", chr_names[i], ".html")
+  out_filename <- paste0(param_vals$resultpath, "/",
+                         pheno_names[i], "_", chr_names[i], ".html")
     
   source("R/runMediation.R")
 }

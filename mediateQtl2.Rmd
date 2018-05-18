@@ -229,6 +229,12 @@ if(resultpath != "")
                                       paste0(target_name, "_", chr_id, "_mediation.csv")))
 ```
 
+```{r}
+if(resultpath != "")
+  write.csv(sum_med, file = file.path(params$resultpath,
+                                      paste0(target_name, "_", chr_id, "_effect.csv")))
+```
+
 #### Driver effects by Mediator, Target, Adjusted model.
 
 ```{r}
