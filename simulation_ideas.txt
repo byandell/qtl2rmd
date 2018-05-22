@@ -1,0 +1,36 @@
+notes
+
+flip around slurm and use sbatch in bash script loop to do simulations
+
+remove target fit from mediation_test; get it elseways
+return to two driver model, or at least compare in simulations to mediator driver
+
+use 2-level SNP for mRNA mediators
+
+simulation ideas
+
+regress target on driver D->T and randomize residuals
+  qtl2::fit1 returns $fitted
+  use target driver
+goal: keep relationships:
+  T ~ D
+  D ~ C
+  M ~ C
+  so, are we forcing independent model? yes
+  except allows T -> M sometimes
+  force indep by also randomizing residuals for C->M
+  
+could also look at keeping
+  M ~ T
+  but break connection with D,C
+  then C/R/I/U should be equivalent
+  
+could also simulate D->T->M -- how?
+
+do strict simulation given C and D
+simulate C/R/I
+  
+  
+      
+
+  

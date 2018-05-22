@@ -1,6 +1,6 @@
 params <- list(
   target_name = "GLP1_G83_ins_secrete_gm",
-  chrID = "1",
+  chr_id = "1",
   dataSetup = "R/dataJaxMadison.R",
   snpScan = 10,
   offset = 2,
@@ -13,14 +13,17 @@ library(ggplot2)
 
 cat(target_name, chr_id, "\n", file = stderr())
 
-# target_name and chr_id might be supplied by calling script
-if(!exists("target_name")) {
-  target_name <- params$target_name
+# Take care of any overridden names
+for(i in names(params)) {
+  if(exists(i))
+    params[[i]] <- get(i)
 }
-if(!exists("chr_id")) {
-  chr_id <- as.character(params$chrID)
-}
+
+target_name <- params$target_name
+chr_id <- as.character(params$chr_id)
+
 cat(target_name, chr_id, "\n", file = stderr())
+
 
 datapath <- params$datapath
 
@@ -32,9 +35,16 @@ if((resultpath <- params$resultpath) != "") {
   list.files(resultpath)
 }
 
+if(!exists("simMediate")) {
+  simMediate <- 0
+  csvEnd <- ".csv"
+} else {
+  csvEnd <- paste0("_", simMediate, ".csv")
+}
+
 source(params$dataSetup)
 kinship <- kinship[[chr_id]]
-target <- pheno_data[, target_name, drop = FALSE]
+pheno_data <- pheno_data[, target_name, drop = FALSE]
 addcovar <- qtl2pattern::covar_df_mx(covar)
 intcovar <- NULL
 
@@ -53,7 +63,9 @@ peaks <-
 
 pos_Mbp <- peaks$pos[1]
 peak_mar <- qtl2::find_marker(map, chr_id, pos_Mbp)
-ap <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
+cat(target_name, chr_id, pos_Mbp, file = stderr())
+cat(peak_mar, "\n", file = stderr())
+driver_tar <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
 
 ### mRNA information
 
@@ -72,10 +84,8 @@ med_signif <-
     gene_end <= pos_Mbp + params$snpScan))$gene_id
 
 mrna.expr <- mrna$expr[, med_signif, drop = FALSE]
-mrna.annot <- 
-  dplyr::filter(
-    mrna$annot,
-    id %in% med_signif)
+m <- match(med_signif, mrna$annot$id)
+mrna.annot <- mrna$annot[m,, drop = FALSE]
 rm(mrna)
 
 ### Mediation with allele probs
@@ -85,9 +95,19 @@ cat("Mediation with allele probs\n", file = stderr())
 mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
 driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
 
+target <- pheno_data
+mediator <- mrna.expr
+
+if(simMediate) {
+  cat("simulate by shuffling residuals\n", file = stderr())
+  source("R/shuffleQtl2.R")
+  target <- shuffleQtl2(driver_tar, target, kinship, covar)
+  mediator <- shuffleQtl2M(driver_med, mediator, kinship, covar, mrna.annot$driver)
+}
+
 med_test <- intermediate::mediation_test(
   target   = target,
-  mediator = mrna.expr,
+  mediator = mediator,
   annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
@@ -102,10 +122,32 @@ sum_med <-
 
 if(resultpath != "")
   write.csv(sum_med, file = file.path(resultpath,
-                                      paste0(target_name, "_", chr_id, "_mediation.csv")))
+                                      paste0(target_name, "_", chr_id, "_med_test_allele", csvEnd)))
+if(resultpath != "" & !simMediate)
+  write.csv(med_test$fit, file = file.path(resultpath,
+                                      paste0(target_name, "_", chr_id, "_med_fit_allele.csv")))
+
+tar_test <- intermediate::mediation_test(
+  target   = target,
+  mediator = mediator,
+  annotation = mrna.annot,
+  covar_tar = covar,
+  covar_med = covar,
+  kinship = kinship,
+  intcovar = intcovar,
+  driver = driver_tar,
+  driver_med = driver_med)
+sum_tar <- 
+  dplyr::arrange(
+    summary(tar_test),
+    pvalue)
+
 if(resultpath != "")
-  write.csv(med_test$test, file = file.path(resultpath,
-                                      paste0(target_name, "_", chr_id, "_effect.csv")))
+  write.csv(sum_tar, file = file.path(resultpath,
+                                      paste0(target_name, "_", chr_id, "_tar_test_allele", csvEnd)))
+if(resultpath != "" & !exists("simMediate"))
+  write.csv(tar_test$test, file = file.path(resultpath,
+                                            paste0(target_name, "_", chr_id, "_tar_fit_allele.csv")))
 
 ### Association mapping
 
@@ -121,11 +163,11 @@ if(is.na(snpScan) || snpScan <= 0) {
   end <- pos_Mbp + snpScan
 }
 
-pairprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
-pairmap <- pairprobs$map
-pairprobs <- pairprobs$probs
+#pairprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
+#pairmap <- pairprobs$map
+#pairprobs <- pairprobs$probs
 
-assoc_ins = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
+assoc_ins = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
                       pheno = target, kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
                       end = end, query_func = query_variant, cores = 4,
@@ -134,17 +176,13 @@ assoc_ins = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap,
 ts <- qtl2::top_snps(assoc_ins$lod, assoc_ins$snpinfo) %>%
   arrange(desc(lod))
 
-if(resultpath != "")
-  write.csv(ts, file = file.path(resultpath,
-                                 paste0(target_name, "_", chr_id, "_topsnps.csv")))
-
 ### Mediation with SNP probs
 
 cat("Mediation with SNP probs\n", file = stderr())
 
 # Find best SNP for each mediator.
 
-assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
+assoc_med = qtl2::scan1snps(genoprobs = genoprobs[,chr_id], map = map, 
                       pheno = mrna.expr,
                       kinship = kinship,
                       addcovar = addcovar, intcovar = intcovar, chr = chr_id, start = start,
@@ -168,14 +206,23 @@ peak_snp <- ts$snp_id[1]
 
 m <- match(mrna.annot$id, ts_med$pheno)
 mrna.annot$driver <- ts_med$snp_id[m]
-driver_med_snp <-
-  qtl2::genoprob_to_snpprob(
-    pairprobs, 
-    assoc_ins$snpinfo)[[chr_id]][,, c( peak_snp, unique(ts_med$snp_id)), drop = FALSE]
+tmp <- qtl2::genoprob_to_snpprob(genoprobs, assoc_ins$snpinfo)
+driver_tar_snp <- tmp[[chr_id]][,, peak_snp]
+driver_med_snp <- tmp[[chr_id]][,, unique(ts_med$snp_id), drop = FALSE]
+
+target <- pheno_data
+mediator <- mrna.expr
+
+if(exists("simMediate")) {
+  cat("simulate by shuffling residuals\n", file = stderr())
+  source("R/shuffleQtl2.R")
+  target <- shuffleQtl2(driver_tar_snp, target, kinship, covar)
+  mediator <- shuffleQtl2M(driver_med_snp, mediator, kinship, covar, mrna.annot$driver)
+}
 
 med2_test <- intermediate::mediation_test(
   target   = target,
-  mediator = mrna.expr,
+  mediator = mediator,
   annotation = mrna.annot,
   covar_tar = covar,
   covar_med = covar,
@@ -187,7 +234,26 @@ sum_med2 <- summary(med2_test)
 
 if(resultpath != "")
   write.csv(sum_med2, file = file.path(resultpath,
-                                       paste0(target_name, "_", chr_id, "_mediation_snp.csv")))
+                                       paste0(target_name, "_", chr_id, "_med_test_snp", csvEnd)))
+if(resultpath != "" & !exists("simMediate"))
+  write.csv(med2_test$fit, file = file.path(resultpath,
+                                       paste0(target_name, "_", chr_id, "_med_fit_snp.csv")))
+
+tar2_test <- intermediate::mediation_test(
+  target   = target,
+  mediator = mediator,
+  annotation = mrna.annot,
+  covar_tar = covar,
+  covar_med = covar,
+  kinship = kinship,
+  intcovar = intcovar,
+  driver = driver_tar_snp,
+  driver_med = driver_med_snp)
+sum_tar2 <- summary(tar2_test)
+
 if(resultpath != "")
+  write.csv(sum_tar2, file = file.path(resultpath,
+                                       paste0(target_name, "_", chr_id, "_tar_test_snp", csvEnd)))
+if(resultpath != "" & !exists("simMediate"))
   write.csv(med2_test$test, file = file.path(resultpath,
-                                       paste0(target_name, "_", chr_id, "_effect_snp.csv")))
+                                             paste0(target_name, "_", chr_id, "_tar_fit_snp.csv")))
