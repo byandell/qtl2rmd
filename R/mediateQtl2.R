@@ -120,12 +120,14 @@ sum_med <-
      summary(med_test),
      pvalue)
 
-if(resultpath != "")
+if(resultpath != "") {
   write.csv(sum_med, file = file.path(resultpath,
-                                      paste0(target_name, "_", chr_id, "_med_test_allele", csvEnd)))
-if(resultpath != "" & !simMediate)
+                                      paste0(target_name, "_", chr_id, "_med_best_allele", csvEnd)))
+  write.csv(med_test$test, file = file.path(resultpath,
+                                           paste0(target_name, "_", chr_id, "_med_test_allele", csvEnd)))
   write.csv(med_test$fit, file = file.path(resultpath,
-                                      paste0(target_name, "_", chr_id, "_med_fit_allele.csv")))
+                                      paste0(target_name, "_", chr_id, "_med_fit_allele", csvEnd)))
+}
 
 tar_test <- intermediate::mediation_test(
   target   = target,
@@ -136,18 +138,21 @@ tar_test <- intermediate::mediation_test(
   kinship = kinship,
   intcovar = intcovar,
   driver = driver_tar,
-  driver_med = driver_med)
+  driver_med = driver_med,
+  frobenius = 1)
 sum_tar <- 
   dplyr::arrange(
     summary(tar_test),
     pvalue)
 
-if(resultpath != "")
+if(resultpath != "") {
   write.csv(sum_tar, file = file.path(resultpath,
-                                      paste0(target_name, "_", chr_id, "_tar_test_allele", csvEnd)))
-if(resultpath != "" & !exists("simMediate"))
+                                      paste0(target_name, "_", chr_id, "_tar_best_allele", csvEnd)))
   write.csv(tar_test$test, file = file.path(resultpath,
-                                            paste0(target_name, "_", chr_id, "_tar_fit_allele.csv")))
+                                            paste0(target_name, "_", chr_id, "_tar_test_allele", csvEnd)))
+  write.csv(tar_test$fit, file = file.path(resultpath,
+                                            paste0(target_name, "_", chr_id, "_tar_fit_allele", csvEnd)))
+}
 
 ### Association mapping
 
@@ -232,12 +237,14 @@ med2_test <- intermediate::mediation_test(
   driver_med = driver_med_snp)
 sum_med2 <- summary(med2_test)
 
-if(resultpath != "")
+if(resultpath != "") {
   write.csv(sum_med2, file = file.path(resultpath,
-                                       paste0(target_name, "_", chr_id, "_med_test_snp", csvEnd)))
-if(resultpath != "" & !exists("simMediate"))
+                                       paste0(target_name, "_", chr_id, "_med_best_snp", csvEnd)))
+  write.csv(med2_test$test, file = file.path(resultpath,
+                                            paste0(target_name, "_", chr_id, "_med_test_snp", csvEnd)))
   write.csv(med2_test$fit, file = file.path(resultpath,
-                                       paste0(target_name, "_", chr_id, "_med_fit_snp.csv")))
+                                       paste0(target_name, "_", chr_id, "_med_fit_snp", csvEnd)))
+}
 
 tar2_test <- intermediate::mediation_test(
   target   = target,
@@ -248,12 +255,15 @@ tar2_test <- intermediate::mediation_test(
   kinship = kinship,
   intcovar = intcovar,
   driver = driver_tar_snp,
-  driver_med = driver_med_snp)
+  driver_med = driver_med_snp,
+  frobenius = 1)
 sum_tar2 <- summary(tar2_test)
 
-if(resultpath != "")
+if(resultpath != "") {
   write.csv(sum_tar2, file = file.path(resultpath,
-                                       paste0(target_name, "_", chr_id, "_tar_test_snp", csvEnd)))
-if(resultpath != "" & !exists("simMediate"))
+                                       paste0(target_name, "_", chr_id, "_tar_best_snp", csvEnd)))
   write.csv(med2_test$test, file = file.path(resultpath,
-                                             paste0(target_name, "_", chr_id, "_tar_fit_snp.csv")))
+                                             paste0(target_name, "_", chr_id, "_tar_test_snp", csvEnd)))
+  write.csv(med2_test$fit, file = file.path(resultpath,
+                                             paste0(target_name, "_", chr_id, "_tar_fit_snp", csvEnd)))
+}
