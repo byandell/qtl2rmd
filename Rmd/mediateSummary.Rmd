@@ -8,7 +8,7 @@ params:
     value: mediation_snp
     label: File suffix
   batch:
-    value: batch3
+    value: results
     label: Batch directory
   cutoff:
     value: 0.05
@@ -19,46 +19,63 @@ params:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-The differences of this analysis and summary from the previous are:
+```{r message=FALSE}
+library(dplyr)
+library(ggplot2)
+```
 
-- use separate causal drivers for mediators and target
-    + earlier used only target for driver
-    + mediators selected based on their peak, not on LOD at target driver
+These analyses were run with SLURM using the following setup:
+
+- causal drivers for mediators
+    + mediators selected based on peak LOD near target peak LOD
+    + drivers selected as best SNPs for mediators
 - using 3-level SNP (from 36 allele pair probabilities) for SNP analysis
-- include Mediator-Target-Adjusted allele plot to compare alleles
-- use 0.05 cutoff for summary (previous used 0.1)
+- use 0.05 cutoff for summary
 
 ```{r}
-filenames <- list.files(params$batch, paste0("_", params$suffix, ".csv"))
-names(filenames) <- stringr::str_replace(filenames, paste0("_", params$suffix, ".csv"), "")
-filenames <- as.list(filenames)
+targets <- list.files(params$batch)
+filenames <- as.list(file.path(params$batch, targets))
+names(filenames) <- targets
+filenames <-
+  purrr::map(
+    filenames,
+    function(x) {
+      out <- list.files (x, full.names = TRUE)
+      g <- grep(params$suffix, out)
+      out[g]
+    })
 ```
 
 ```{r}
 meds <- 
-  dplyr::rename(
-    dplyr::mutate(
-      dplyr::select(
-        dplyr::bind_rows(
-          purrr::map(
-            filenames,
-            function(x) 
-              dplyr::filter(
-                read.csv(
-                  file.path(params$batch, x),
-                  stringsAsFactors = FALSE),
-                triad == "causal",
-                pvalue <= params$cutoff)),
-          .id = "target"),
-        target, symbol, chr, pos, mediation, pvalue, dplyr::everything()),
-      mediation = mediation / log(10),
-      chr = as.character(chr),
-      LRmed = LRmed / log(10),
-      pvalue = pmax(pvalue, 1e-10)),
-    QTLs = "info",
-    lod_adj = "mediation",
-    mediator = "symbol",
-    lod_med = "LRmed")
+  dplyr::bind_rows(
+    purrr::map(
+      filenames,
+      function(fname) {
+        dplyr::rename(
+          dplyr::mutate(
+            dplyr::select(
+              dplyr::bind_rows(
+                purrr::map(
+                  as.list(fname),
+                  function(x) 
+                    dplyr::filter(
+                      read.csv(
+                        x,
+                        stringsAsFactors = FALSE),
+                      triad == "causal",
+                      pvalue <= params$cutoff))),
+              symbol, chr, pos, mediation, pvalue, dplyr::everything()),
+            mediation = mediation / log(10),
+            chr = factor(chr, c(1:19, "X")),
+            LRmed = LRmed / log(10),
+            pvalue = pmax(pvalue, 1e-10)),
+          QTLs = "info",
+          lod_adj = "mediation",
+          mediator = "symbol",
+          lod_med = "LRmed")
+      }),
+    .id = "target")
 ```
 
 Need to relate this to the peaks file.
@@ -75,9 +92,9 @@ peaks <-
     dplyr::arrange(
       dplyr::mutate(
         readxl::read_excel(
-          "local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
+          "data/Ex vivo peak summary with QTL count[1].xlsx",
           col_types = c(rep("text", 2), rep("numeric", 12), "numeric")),
-        lodcolumn = paste(lodcolumn, chr, sep = "_"),
+        chr = factor(chr, c(1:19, "X")),
         QTL = tmpfn(QTL)),
       dplyr::desc(lod)),
     target = "lodcolumn",

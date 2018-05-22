@@ -15,12 +15,12 @@ params:
     value: coef
   dataSetup:
     choices:
-    - dataJax.R
-    - dataMadison.R
-    - dataJaxMadison.R
+    - R/dataJax.R
+    - R/dataMadison.R
+    - R/dataJaxMadison.R
     input: select
     label: Data setup file
-    value: dataJaxMadison.R
+    value: R/dataJaxMadison.R
   docTitle:
     label: Document title
     value: Mediation Scan
@@ -49,7 +49,7 @@ params:
   datapath:
     input: text
     label: Path to derived data (required for Madison)
-    value: ..
+    value: data
   showPeaks:
     label: Show highest peaks (0=no, n=number to show)
     value: 0
@@ -120,7 +120,7 @@ map <- query_probs()$map
 ```
 
 ```{r}
-(peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
+(peaks <- readxl::read_excel("data/Ex vivo peak summary with QTL count[1].xlsx",
                             col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
   dplyr::filter(lodcolumn == target_name,
                 chr == chr_id))
@@ -284,7 +284,7 @@ ggplot(tests_mediator) +
   facet_grid(fit.x ~ model) +
   scale_x_log10() + scale_y_log10() +
   xlab("pvalue for mediator driver") +
-  ylab("pvalue for other drivers")
+  ylab("pvalue for two drivers")
 ```
 
 # Association mapping

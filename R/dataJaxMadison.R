@@ -8,7 +8,7 @@ cat("load Attie data\n", file = stderr())
 
 # Only getting pheno and covar from Jax.
 
-if(!file.exists(exvivo <- "data/exvivo_pheno.rds")) {
+if(!file.exists(exvivo <- file.path(datapath, "exvivo_pheno.rds"))) {
   cat("one time load of Jax data\n", file = stderr())
   load("~/Documents/Research/attie_alan/DO/AttieDOv2/DerivedData/Attie_islet_secr_data_v5.Rdata")
   saveRDS(dataset.exvivo$pheno, file = exvivo)
@@ -17,7 +17,7 @@ if(!file.exists(exvivo <- "data/exvivo_pheno.rds")) {
 # Assume data already transformed.
 pheno_data <- readRDS(exvivo)
 
-covar_info <- read.csv("data/islet_secr_for_brian.csv")
+covar_info <- read.csv(file.path(datapath, "islet_secr_for_brian.csv"))
 covar_names <- unlist(stringr::str_split(
   (covar_info %>% dplyr::filter(data_name == target_name))$covar,":"))
 form <- formula(paste("~", paste(covar_names, collapse = "+")))
