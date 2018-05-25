@@ -11,8 +11,6 @@ params <- list(
 library(dplyr)
 library(ggplot2)
 
-cat(target_name, chr_id, "\n", file = stderr())
-
 # Take care of any overridden names
 for(i in names(params)) {
   if(exists(i))
@@ -21,9 +19,6 @@ for(i in names(params)) {
 
 target_name <- params$target_name
 chr_id <- as.character(params$chr_id)
-
-cat(target_name, chr_id, "\n", file = stderr())
-
 
 datapath <- params$datapath
 
@@ -39,7 +34,7 @@ if(!exists("simMediate")) {
   simMediate <- 0
   csvEnd <- ".csv"
 } else {
-  csvEnd <- paste0("_", simMediate, ".csv")
+  csvEnd <- paste0("_", simMediate, ".rds")
 }
 
 source(params$dataSetup)
@@ -121,12 +116,24 @@ sum_med <-
      pvalue)
 
 if(resultpath != "") {
-  write.csv(sum_med, file = file.path(resultpath,
-                                      paste0(target_name, "_", chr_id, "_med_best_allele", csvEnd)))
-  write.csv(med_test$test, file = file.path(resultpath,
-                                           paste0(target_name, "_", chr_id, "_med_test_allele", csvEnd)))
-  write.csv(med_test$fit, file = file.path(resultpath,
-                                      paste0(target_name, "_", chr_id, "_med_fit_allele", csvEnd)))
+  if(simMediate) {
+    saveRDS(
+      dplyr::select(
+        sum_med,
+        id, symbol, chr, pos, mediation, triad, pvalue, LR, IC),
+      file = file.path(resultpath,
+                       paste0(target_name, "_", chr_id, "_med_best_allele", csvEnd)))
+  } else {
+    write.csv(sum_med,
+              file = file.path(resultpath,
+                               paste0(target_name, "_", chr_id, "_med_best_allele", csvEnd)))
+    write.csv(med_test$test,
+              file = file.path(resultpath,
+                               paste0(target_name, "_", chr_id, "_med_test_allele", csvEnd)))
+    write.csv(med_test$fit,
+              file = file.path(resultpath,
+                               paste0(target_name, "_", chr_id, "_med_fit_allele", csvEnd)))
+  }
 }
 
 tar_test <- intermediate::mediation_test(
@@ -218,7 +225,7 @@ driver_med_snp <- tmp[[chr_id]][,, unique(ts_med$snp_id), drop = FALSE]
 target <- pheno_data
 mediator <- mrna.expr
 
-if(exists("simMediate")) {
+if(simMediate) {
   cat("simulate by shuffling residuals\n", file = stderr())
   source("R/shuffleQtl2.R")
   target <- shuffleQtl2(driver_tar_snp, target, kinship, covar)
@@ -238,12 +245,24 @@ med2_test <- intermediate::mediation_test(
 sum_med2 <- summary(med2_test)
 
 if(resultpath != "") {
-  write.csv(sum_med2, file = file.path(resultpath,
-                                       paste0(target_name, "_", chr_id, "_med_best_snp", csvEnd)))
-  write.csv(med2_test$test, file = file.path(resultpath,
-                                            paste0(target_name, "_", chr_id, "_med_test_snp", csvEnd)))
-  write.csv(med2_test$fit, file = file.path(resultpath,
-                                       paste0(target_name, "_", chr_id, "_med_fit_snp", csvEnd)))
+  if(simMediate) {
+    saveRDS(
+      dplyr::select(
+        sum_med2,
+        id, symbol, chr, pos, mediation, triad, pvalue, LR, IC),
+      file = file.path(resultpath,
+                       paste0(target_name, "_", chr_id, "_med_best_snp", csvEnd)))
+  } else {
+    write.csv(sum_med2,
+              file = file.path(resultpath,
+                               paste0(target_name, "_", chr_id, "_med_best_snp", csvEnd)))
+    write.csv(med2_test$test,
+              file = file.path(resultpath,
+                               paste0(target_name, "_", chr_id, "_med_test_snp", csvEnd)))
+    write.csv(med2_test$fit,
+              file = file.path(resultpath,
+                               paste0(target_name, "_", chr_id, "_med_fit_snp", csvEnd)))
+  }
 }
 
 tar2_test <- intermediate::mediation_test(

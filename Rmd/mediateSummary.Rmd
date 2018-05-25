@@ -8,11 +8,14 @@ params:
     value: mediation_snp
     label: File suffix
   batch:
-    value: results
+    value: ../results
     label: Batch directory
   cutoff:
     value: 0.05
     label: P-value cutoff
+  driver:
+    value: med
+    label: driver choice
 ---
 
 ```{r setup, include=FALSE}
@@ -33,17 +36,15 @@ These analyses were run with SLURM using the following setup:
 - use 0.05 cutoff for summary
 
 ```{r}
-targets <- list.files(params$batch)
-filenames <- as.list(file.path(params$batch, targets))
+(driver <- params$driver)
+folder <- paste("best", driver, sep = "_")
+filenames <- list.files(file.path(params$batch, folder))
+filenames <- filenames[grep(paste0("_", driver, "_best_snp"), filenames)]
+targets <- stringr::str_remove(filenames, paste0("_", driver, ".*"))
+chrs <- stringr::str_extract(targets, "[0-9]+$")
+targets <- stringr::str_remove(targets, "_[0-9]+$")
+filenames <- as.list(file.path(params$batch, folder, filenames))
 names(filenames) <- targets
-filenames <-
-  purrr::map(
-    filenames,
-    function(x) {
-      out <- list.files (x, full.names = TRUE)
-      g <- grep(params$suffix, out)
-      out[g]
-    })
 ```
 
 ```{r}
@@ -63,7 +64,7 @@ meds <-
                       read.csv(
                         x,
                         stringsAsFactors = FALSE),
-                      triad == "causal",
+#                      triad == "causal",
                       pvalue <= params$cutoff))),
               symbol, chr, pos, mediation, pvalue, dplyr::everything()),
             mediation = mediation / log(10),
@@ -92,7 +93,7 @@ peaks <-
     dplyr::arrange(
       dplyr::mutate(
         readxl::read_excel(
-          "data/Ex vivo peak summary with QTL count[1].xlsx",
+          "../data/Ex vivo peak summary with QTL count[1].xlsx",
           col_types = c(rep("text", 2), rep("numeric", 12), "numeric")),
         chr = factor(chr, c(1:19, "X")),
         QTL = tmpfn(QTL)),
@@ -106,6 +107,10 @@ peaks <-
 ```{r}
 meds <- 
   dplyr::left_join(meds, peaks, by = c("target", "chr"))
+```
+
+```{r}
+write.csv(meds, file = paste0("mediation_test_", driver, ".csv"))
 ```
 
 ```{r}
@@ -127,7 +132,7 @@ meds <-
 ### Plots
 
 ```{r}
-ggplot2::ggplot(meds %>% filter(pvalue <= 0.001)) +
+ggplot2::ggplot(meds) +
   ggplot2::aes(lod_tar - lod_adj, -log10(pvalue),
                col = chrGroup) +
   ggplot2::geom_point(alpha = 0.5) +

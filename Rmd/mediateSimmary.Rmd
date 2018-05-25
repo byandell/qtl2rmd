@@ -1,0 +1,427 @@
+---
+title: "Mediation Simulation Summary"
+author: "Brian S. Yandell"
+date: "4/18/2018"
+output:
+  pdf_document: default
+  html_document: default
+params:
+  batch:
+    label: Batch directory
+    value: ../rds
+  cutoff:
+    label: P-value cutoff
+    value: 0.05
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = NA)
+```
+
+```{r message=FALSE}
+library(dplyr)
+library(ggplot2)
+```
+
+Simulations were conducted for all insulin secretion targets and potential mRNA mediators to examine the causal model selection tests applied to mediation. There are four models -- causal, reactive, independent and undecided. The natural choice for a null model is the independent model. This was simulated for targets and mediators by regressing each on its QTL driver and creating simulated values as the fitted value plus a permutation of the residuals. This process was repeated 100 times. There were 24 targets with 1-6 QTL for 59 target-qtl combinations, having a total of 7,190 potential mediators. Here potential mediators are defined as mRNA with significant QTL peaks within 10Mbp of a target QTL. Thus, 719,000 simulated datasets were created.
+
+Simulations were run with [SLURM](https://slurm.schedmd.com/) using the following setup. Simulations involved randomly shuffling the residuals from fit of `target` or `mediator` at QTL (marker for alleles, or SNP). Here the genotype probabilities at the QTL are called `driver_tar` and `driver_med`. Each `mediator` has its own driver. Below is a sketch of the code used. Notice that `kinship` and covariates (`covar_tar`) are used in the fits. The `sample()` function will permute the values.
+
+```
+fit_tar <- qtl2::fit(driver_tar, target, kinship, covar_tar)
+target_sim <- fit_tar$fitted + sample(target - fit_tar$fitted)
+```
+
+and similarly for each mediator using its driver.
+This forces simulation realizations to be from the `independent` model. We compare the `mediator` driver approach with the two driver approach (one for `target` and one for `mediator`).
+
+Conclusions, based on examining a few targets in detail across all their potential mediators, and all targets in summary, is that the two-driver approach is superior.
+The mediator driver favors the `causal` model, at least for drivers with strong QTL, which could be too liberal in making `causal` calls. The two-driver model allows for separate drivers for `mediator` and `target`, which seems more realistic given the fine-mapping capabilities of multi-parent populations.
+
+We examined drivers based on the allele genotype probabilities (7 df) and those based on SNPs (1 or 2 df). We present only results based on the 1df SNPs derived from the allele genotype probabilities as these are more powerful and specific. Note that we first identified the best SNP for each `target`, and then identified for each mediator the best SNP with the same SNP distribution pattern (`sdp`) as that for the `target`. This ensured that the SNPs would be picking up similar genetic signals. We used a 5.5 LOD cutoff for significant LOD to identify mediators. Summaries below use a `r params$cutoff` cufoff for causal test significance; this will be lowered to 0.05 when we ramp up to larger simulations.
+
+```{r}
+filenames <- list.files(params$batch)
+filenames <- filenames[grep("_best.rds", filenames)]
+targets <- stringr::str_remove(filenames, "_med_tar.*")
+chrs <- stringr::str_remove(targets, "^.*_")
+targets <- stringr::str_remove(targets, "_[0-9]+$")
+targets <- data.frame(target = targets, chr = chrs, file = filenames,
+                      stringsAsFactors = FALSE)
+```
+
+```{r}
+source("../R/mediator_quants.R")
+```
+
+```{r}
+if(file.exists("med_quants.rds")) {
+  med_quants <- readRDS("med_quants.rds")
+} else {
+  med_quants <- mediator_quants(targets, quantiles, quants = seq(0.05, .95, by = 0.05))
+  saveRDS(med_quants, file = "med_quants.rds")
+}
+```
+
+## Counts of causal calls
+
+We might have expected the mediator driver approach to be more powerful, but there was a risk that it would call `causal` more often by mistake. This is borne out in simulations, where the correct call would be `independent`. As seen in the tables below, the two-driver approach (rows) calls `independent` most of the time, whereas the mediator driver approach (columns) splits calls half and half between `causal` and `independent`. The first table has all calls regardless of p-value. Entries are percent of calls rounded to two decimal points.
+
+```{r}
+if(file.exists("med_counts.rds")) {
+  med_counts <- readRDS("med_counts.rds")
+} else {
+  med_counts <- mediator_quants(targets, counts, cutoff = 1)
+  saveRDS(med_counts, file = "med_counts.rds")
+}
+```
+
+```{r}
+ngroup <- length(unique(paste(med_counts$target,med_counts$chr,med_counts$id)))
+```
+
+```{r}
+tmpfn <- function(x) round(sum(x, na.rm = TRUE) / ngroup, 2)
+triad_counts <- med_counts %>%
+  group_by(triad.t) %>%
+  summarize_at(vars(causal:reactive), tmpfn)
+names(triad_counts)[1] <- "two_mediator"
+callnames <- c(triad_counts[[1]], "n.s.")
+triad_counts
+```
+
+The second table considers calls to be signficant at 10% level.
+
+```{r}
+if(file.exists("med_counts_1.rds")) {
+  med_counts_1 <- readRDS("med_counts_1.rds")
+} else {
+  med_counts_1 <- mediator_quants(targets, counts, cutoff = params$cutoff)
+  saveRDS(med_counts_1, file = "med_counts_1.rds")
+}
+```
+
+```{r}
+triad_counts <- med_counts_1 %>%
+  group_by(triad.t) %>%
+  summarize_at(vars(causal:reactive), tmpfn)
+names(triad_counts)[1] <- "two_mediator"
+(traid_counts <- triad_counts[match(callnames, triad_counts[[1]]), c("two_mediator", callnames)])
+```
+
+That is, for simulations with one driver at the mediator, the results were:
+
+```{r}
+(tmp <- apply(triad_counts %>% select(causal:reactive), 2, sum))
+```
+
+with `r tmp["causal"]`% called as causal, `r tmp["independent"]`% called as independent, and `r tmp["n.s."]`% called as not significant.
+
+```{r message=FALSE}
+tmp <- data.frame(triad_counts %>% select(causal:reactive))
+rownames(tmp) <- triad_counts[[1]]
+(tmp <-apply(tmp, 1, sum))
+```
+
+In contrast for simulations with two drivers, the results were `r tmp["causal"]`% called as causal, `r tmp["independent"]`% called as independent, and `r tmp["n.s."]`% called as not significant.
+That is, a much smaller proportion were called as causal, and more called as independent, which was the true model.
+
+It may be useful to examine what the closest alternative model was for the two-driver simulations. The table below differentiates between significant and n.s. calls.
+
+```{r}
+if(file.exists("med_alts_1.rds")) {
+  med_alts_1 <- readRDS("med_alts_1.rds")
+} else {
+  med_alts_1 <- mediator_quants(targets, alts, cutoff = params$cutoff)
+  saveRDS(med_alts_1, file = "med_alts_1.rds")
+}
+```
+
+```{r}
+triad_alts <- med_alts_1 %>%
+  group_by(triad.t) %>%
+  summarize_at(vars(causal:reactive), tmpfn)
+names(triad_alts)[1] <- "two_mediator"
+triad_alts
+```
+
+Notice that `r sum(triad_alts[,"causal"])`% had `causal` as the closest alternative, with a similar proportion of `independent` and `reactive` alternatives.
+
+## Distribution of p-values 
+
+Under a null hypothesis, we would usually expect p-values to have a uniform distribution. However, there is no natural null hypothesis here, as the p-values are the minimum (over four models) of the maximum (over comparisons each of 3 pairs of models). Therefore, it is not surprising that the p-values are skewed to the left.
+
+```{r}
+summaryplot_quants(med_quants, "tar") +
+  ggtitle("quantiles for two driver simulations")
+```
+
+```{r}
+summaryplot_quants(med_quants, "med") +
+  ggtitle("quantiles for mediator driver simulations")
+```
+
+## Separate tests
+
+```{r}
+tmpfn <- function(group) {
+  wh <- which(!is.na(group))
+  ct <- diff(c(wh, length(group) + 1))
+  rep(group[wh], ct)
+}
+peaks <- 
+  dplyr::rename(
+    dplyr::arrange(
+      dplyr::mutate(
+        readxl::read_excel(
+          "../data/Ex vivo peak summary with QTL count[1].xlsx",
+          col_types = c(rep("text", 2), rep("numeric", 12), "numeric")),
+        chr = factor(chr, c(1:19, "X")),
+        QTL = tmpfn(QTL)),
+      dplyr::desc(lod)),
+    target = "lodcolumn",
+    pos_tar = "pos",
+    lod_tar = "lod",
+    group = "QTL")
+```
+
+```{r}
+filenames <- list.files(params$batch)
+filenames <- filenames[grep("_test.rds", filenames)]
+targets <- stringr::str_remove(filenames, "_med_tar.*")
+chrs <- stringr::str_remove(targets, "^.*_")
+targets <- stringr::str_remove(targets, "_[0-9]+$")
+targets <- data.frame(target = targets, chr = chrs, file = filenames,
+                      stringsAsFactors = FALSE)
+```
+
+```{r}
+tmp <- readRDS(file.path(params$batch, targets$file[1]))
+```
+
+```{r}
+tmp <-
+  dplyr::mutate(
+    tmp,
+    diffp = log10(pvalue.t) - log10(pvalue.m),
+    col = (pvalue.t <= params$cutoff) + 2 * (pvalue.m <= params$cutoff),
+    col = factor(c("n.s", "two.driver", "mediator","both")[1+col], c("n.s", "two.driver", "both", "mediator")))
+```
+
+```{r}
+ggplot(tmp) +
+  aes(pvalue.t, pvalue.m, col = col) +
+  geom_abline(intercept = 0, slope = 1, col = "gray") +
+  geom_point(alpha = 0.2) +
+  facet_grid(. ~ model) +
+  scale_x_log10() + scale_y_log10() +
+  ylab("pvalue for mediator driver") +
+  xlab("pvalue for two drivers")
+```
+
+```{r}
+ggplot(tmp) +
+  aes(pvalue.t, diffp, col = col) +
+  geom_abline(intercept = 0, slope = 0, col = "gray") +
+  geom_point(alpha = 0.2) +
+  facet_grid(. ~ model) +
+  scale_x_log10() +
+  xlab("pvalue for two drivers") +
+  ylab("log10 pvalue difference")
+```
+
+```{r}
+if(file.exists("med_logp.rds")) {
+  med_logp <- readRDS("med_logp.rds")
+} else {
+  med_logp <- mediator_quants(targets, logp, quants = seq(0.05, .95, by = 0.05))
+  saveRDS(med_logp, file = "med_logp.rds")
+}
+```
+
+```{r}
+med_logp <-
+  dplyr::left_join(
+    med_logp,
+    dplyr::select(
+      peaks,
+      target, chr, group),
+    by = c("target", "chr"))
+```
+
+```{r}
+q1 <- function(x) quantile(x, 0.25)
+q2 <- median
+q3 <- function(x) quantile(x, 0.75)
+tmpfn <- function(chr, group) {
+  factor(unlist(sapply(split(group, chr), function(x) 1 + x - min(x))))
+}
+pct_quart <- 
+  dplyr::mutate(
+    dplyr::arrange(
+      tidyr::gather(
+        dplyr::ungroup(
+          dplyr::summarize_at(
+            dplyr::group_by(
+              med_logp,
+              chr, group, pct),
+            vars(independent),
+            funs(q1,q2,q3))),
+        quartile, pvalue, -chr, -group, -pct),
+      group),
+    chr = factor(chr, unique(chr)),
+    chrGroup = tmpfn(chr, group))
+```
+
+```{r}
+ggplot(pct_quart %>% filter(quartile == "q2")) +
+  aes(pvalue, pct, col = chrGroup, group = group) +
+  geom_abline(intercept = 0, slope = 100, col = "gray", linetype = "dashed") +
+  geom_line() +
+  facet_wrap(~ chr)
+```
+
+```{r}
+ggplot(pct_quart %>% filter(chr == "7")) +
+  aes(pvalue, pct, col = quartile, group = quartile) +
+  geom_abline(intercept = 0, slope = 100, col = "gray", linetype = "dashed") +
+  geom_line()
+```
+
+```{r}
+ggplot(
+  dplyr::mutate(
+    dplyr::filter(
+      med_logp,
+      chr == "7"),
+    id = reorder(id, independent))) +
+  aes(independent, pct, col = id, group = id) +
+  geom_abline(intercept = 0, slope = 100, col = "gray", linetype = "dashed") +
+  geom_line() +
+  theme(legend.position = "none") +
+  ggtitle("mediators on chr 7")
+```
+
+#### Compare pvalue for causal and independent models
+
+```{r}
+tmp <- 
+  med_logp %>% 
+  group_by(pct) %>%
+  summarize_at(vars(diffp.c:pvalue.i), mean) %>%
+  ungroup
+pval <-
+  dplyr::inner_join(
+    tidyr::gather(
+      dplyr::select(
+        dplyr::rename(
+          tmp,
+          causal = "pvalue.c",
+          independent = "pvalue.i"),
+        pct, causal, independent),
+      "model", "pvalue", -pct),
+    tidyr::gather(
+      dplyr::select(
+        dplyr::rename(
+          tmp,
+          causal = "diffp.c",
+          independent = "diffp.i"),
+        pct, causal, independent),
+      "model", "diffp", -pct),
+    by = c("pct","model"))
+```
+
+```{r}
+ggplot(pval) +
+  aes(pct, diffp, col = model) +
+  geom_line()
+```
+
+```{r}
+knitr::knit_exit()
+```
+
+################################################################
+
+```{r}
+ggplot(med_tar_test %>% filter(id == id[1])) +
+  aes(LR.t, LR.t - LR.m) +
+  geom_point(alpha = 0.2) +
+  facet_wrap(~ model)
+```
+
+```{r}
+ggplot(med_tar_test %>% filter(id == id[1])) +
+  aes(pvalue.t, pvalue.m) +
+  geom_point(alpha = 0.2) +
+  facet_wrap(~ model) +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+```{r}
+ggplot(med_tar_test %>% filter(id == id[1])) +
+  aes(pvalue.t, pvalue.m) +
+  geom_point(alpha = 0.2) +
+  facet_wrap(~ model)
+```
+
+```{r}
+ggplot(med_tar_test %>%
+         select(id, model, pvalue.t, pvalue.m) %>%
+         dplyr::filter(model %in% c("causal","independent")) %>%
+         tidyr::gather("driver", "pvalue", -id, -model)) +
+  aes(pvalue, col = driver) +
+  geom_hline(yintercept = 1, col = "gray") +
+  geom_density() +
+  facet_wrap(~ model)
+```
+
+Mostly causal and independent models are the ones that fit.
+
+```{r}
+tmp <- med_tar_test %>%
+         select(id, simnum, model, pvalue.t) %>%
+         dplyr::filter(model %in% c("causal","independent")) %>%
+         tidyr::spread(model, pvalue.t)
+summary((tmp %>%
+  group_by(id) %>%
+  summarize(prop1 = sum(abs(causal + independent - 1) <= 1e-10)))$prop1)
+```
+
+```{r}
+ggplot(tmp %>%
+         filter(abs(causal + independent - 1) > 1e-10)) +
+  aes(causal, independent, col = simnum) +
+  geom_point(alpha = 0.2) +
+  theme(legend.position = "none")
+```
+
+## Best model
+
+```{r}
+tar_best <- extract_tables(batch = params$batch,
+                           target_name = target_name,
+                           chr_id = chr_id, model = "tar", result = "best", driver = "snp")
+med_best <- extract_tables(batch = params$batch,
+                           target_name = target_name,
+                           chr_id = chr_id, model = "med", result = "best", driver = "snp")
+```
+
+```{r}
+med_tar_best <-
+  dplyr::inner_join(
+    tar_best,
+    med_best,
+    suffix = c(".t",".m"),
+    by = c("simnum","id","symbol","chr"))
+```
+
+```{r}
+med_tar_best %>%
+  mutate(triad.t = ifelse(pvalue.t <= 0.05, triad.t, "n.s."),
+         triad.m = ifelse(pvalue.m <= 0.05, triad.m, "n.s.")) %>%
+  count(triad.t, triad.m) %>%
+  tidyr::spread(triad.m, n)
+```
+

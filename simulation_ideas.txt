@@ -1,7 +1,5 @@
 notes
 
-flip around slurm and use sbatch in bash script loop to do simulations
-
 remove target fit from mediation_test; get it elseways
 return to two driver model, or at least compare in simulations to mediator driver
 
