@@ -5,7 +5,7 @@ date: "4/18/2018"
 output: html_document
 params:
   suffix:
-    value: mediation_snp
+    value: mediation
     label: File suffix
   batch:
     value: ../results
@@ -16,6 +16,9 @@ params:
   driver:
     value: med
     label: driver choice
+  probtype:
+    value: allele
+    label: Genotype Probability Type
 ---
 
 ```{r setup, include=FALSE}
@@ -37,9 +40,9 @@ These analyses were run with SLURM using the following setup:
 
 ```{r}
 (driver <- params$driver)
-folder <- paste("best", driver, sep = "_")
+(probtype <- params$probtype)
+folder <- paste("best", driver, probtype, sep = "_")
 filenames <- list.files(file.path(params$batch, folder))
-filenames <- filenames[grep(paste0("_", driver, "_best_snp"), filenames)]
 targets <- stringr::str_remove(filenames, paste0("_", driver, ".*"))
 chrs <- stringr::str_extract(targets, "[0-9]+$")
 targets <- stringr::str_remove(targets, "_[0-9]+$")
@@ -63,6 +66,7 @@ meds <-
                     dplyr::filter(
                       read.csv(
                         x,
+                        row.names = NULL,
                         stringsAsFactors = FALSE),
 #                      triad == "causal",
                       pvalue <= params$cutoff))),
@@ -110,7 +114,11 @@ meds <-
 ```
 
 ```{r}
-write.csv(meds, file = paste0("mediation_test_", driver, ".csv"))
+write.csv(meds %>%
+            select(target:pvalue, id:lod_med, nearest_marker:ci_hi, group) %>%
+            rename(QTL = "group"),
+          file = file.path(params$batch,
+                           paste0(params$suffix, "_best_", driver, "_", probtype, ".csv")))
 ```
 
 ```{r}
@@ -148,10 +156,10 @@ ggplot2::ggplot(meds) +
 ```
 
 ```{r fig.width=9,fig.heigth=6}
-plotly::ggplotly(ggplot2::ggplot(meds) +
+ggplot2::ggplot(meds) +
   ggplot2::aes(pos_tar, lod_tar - lod_adj, col = chrGroup, symbol = mediator) +
   ggplot2::geom_point(alpha = 0.5) +
-  ggplot2::facet_wrap(~ chr))
+  ggplot2::facet_wrap(~ chr)
 ```
 
 ```{r}
@@ -161,9 +169,13 @@ knitr::knit_exit()
 # Mediation effects
 
 ```{r}
-filenames <- list.files(params$batch, paste0("_effect.csv"))
-names(filenames) <- stringr::str_replace(filenames, paste0("_effect.csv"), "")
-filenames <- as.list(filenames)
+folder <- paste("fit", driver, probtype, sep = "_")
+filenames <- list.files(file.path(params$batch, folder))
+targets <- stringr::str_remove(filenames, paste0("_", driver, ".*"))
+chrs <- stringr::str_extract(targets, "[0-9]+$")
+targets <- stringr::str_remove(targets, "_[0-9]+$")
+filenames <- as.list(file.path(params$batch, folder, filenames))
+names(filenames) <- paste(targets, chrs, sep = "_")
 ```
 
 ```{r}
@@ -176,20 +188,33 @@ effects <-
           function(x) 
             read.csv(
               file.path(params$batch, x),
+              row.names = NULL,
               stringsAsFactors = FALSE)),
         .id = "target"),
       lod = "LR"),
     lod = lod / log(10))
 ```
 
-# CSV outfiles
-
 ```{r}
-write.csv(meds, file = paste0(params$suffix, "Summary.csv"))
+write.csv(effects %>%
+  filter(response == "target") %>%
+  distinct(target, .keep_all = TRUE),
+  file = file.path(params$batch,
+                   paste0("target", "_fit_", driver, "_", probtype, ".csv")))
 ```
 
 ```{r}
-write.csv(effects, file = paste0(params$suffix, "Effects.csv"))
+write.csv(effects %>%
+  filter(response == "mediator"),
+  file = file.path(params$batch,
+                   paste0("mediator", "_fit_", driver, "_", probtype, ".csv")))
+```
+
+```{r}
+write.csv(effects %>%
+  filter(response == "mediation"),
+  file = file.path(params$batch,
+                   paste0("adjusted", "_fit_", driver, "_", probtype, ".csv")))
 ```
 
 

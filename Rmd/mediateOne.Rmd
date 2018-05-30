@@ -5,10 +5,14 @@ params:
     value: GLP1_G83_ins_secrete_gm
   mediator_name:
     label: Mediator
-    value: Ptpn18
-  chrID:
+    value: Hunk
+  chr_id:
     label: Chromosome
-    value: 1
+    value: 16
+  pos_Mbp:
+    input: numeric
+    value: 90
+    label: Peak position
   coefType:
     choices:
     - coef
@@ -58,7 +62,7 @@ params:
   datapath:
     input: text
     label: Path to derived data (required for Madison)
-    value: ..
+    value: ../data
   showPeaks:
     label: Show highest peaks (0=no, n=number to show)
     value: 0
@@ -87,11 +91,16 @@ library(plotly)
 
 ```{r}
 target_name <- params$target_name
-chr_id <- as.character(params$chrID)
+chr_id <- as.character(params$chr_id)
 mediator_name <- params$mediator_name
 datapath <- params$datapath
 resultpath <- params$resultpath
 ```
+
+```{r}
+dataSetup <- file.path("../R", params$dataSetup)
+```
+
 
 This document has a variety of strategies, but here is current recommendation. Assumed is that we have identified a `target` (`r target_name`), a chromosome (`r chr_id`), and a `mediator` (`r mediator_name`).
 
@@ -120,7 +129,7 @@ data.frame(params_value = unlist(params))
 ```
 
 ```{r}
-source(params$dataSetup)
+source(dataSetup)
 ```
 
 ```{r}
@@ -142,7 +151,7 @@ kinship <- kinship[[chr_id]]
 ### Peak position for target
 
 ```{r}
-peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
+peaks <- readxl::read_excel(file.path(datapath,"Ex vivo peak summary with QTL count[1].xlsx"),
                             col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
   dplyr::filter(lodcolumn == target_name,
                 chr == chr_id)
@@ -151,12 +160,14 @@ peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xl
 ```{r}
 if(!nrow(peaks)) {
   cat("no peaks for", target_name, "\n")
-  knitr::knit_exit()
+#  knitr::knit_exit()
 }
 ```
 
 ```{r ins_peaks}
 pos_Mbp <- peaks$pos[1]
+if(is.na(pos_Mbp))
+  pos_Mbp <- params$pos_Mbp
 ```
 
 ```{r peak_mar,message=FALSE}
@@ -288,7 +299,7 @@ We now combine the above three genome scans with relationships fits of $T\vert M
 
 ```{r}
 nmar <- ncol(genoprobs[[chr_id]])
-penalty <- c(nmar, nmar, 2*(nmar-1), 2*nmar-1,0) * log10(nind) / 2
+penalty <- c(nmar, nmar, 2*(nmar-1), 2*nmar-1,0,0) * log10(nind) / 2
 ```
 
 ```{r}
@@ -644,8 +655,11 @@ topsnps <- left_join(topsnps,
                        mutate(lod = lod / log(10)) %>%
                        select(index, triad, lod, pvalue, symbol),
                      by = "index")
-filename <- paste0(target_name, "_", mediator_name, "_topsnps.csv")
-write.csv(topsnps, file = filename)
+write.csv(
+  topsnps, 
+  file = file.path(
+    resultpath, 
+    paste0(target_name, "_", chr_id, "_", mediator_name, "_topsnps.csv")))
 ```
 
 The plots are based on `r nrow(best_snp)` index SNPs, but the number of SNPs with this pattern in this range is `r nrow(topsnps)`. See results in file `filename`.

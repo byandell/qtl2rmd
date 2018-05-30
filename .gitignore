@@ -40,3 +40,6 @@ vignettes/*.pdf
 *.csv
 *.html
 local/
+*.rds
+*.pdf
+
