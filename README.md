@@ -1,38 +1,67 @@
 # qtl2rmd
-Rmarkdown for qtl2 analyses
+Rmarkdown for qtl2 mediation analyses
+
+The directory has a collection of scripts, some for one-off and others for batch production runs on the [SLURM](https://slurm.schedmd.com/) workload manager.
+
+### SLURM folder
+
+- SLURMsetup.sh (run this locally to migrate files)
+- mediation runs
+    + mediateRuns.sh
+    + mediateQtl2.sh
+- simulation runs
+    + slurmSim.sh
+    + mediateSims.sh
+    + SimsSummary.sh
+
+### Rmd folder
+
+Rmd are for exploration and reporting (see summary scripts).
+
+- mediateOne.Rmd (near production for one mediator)
+- mediateQtl2.Rmd (production for one target, all mediators)
+- mediateSummary.Rmd (summary of mediation for multiple targets)
+- mediateSimmary.Rmd (summary of mediation simulations)
+- mediateTest.Rmd (local use; expore mediator choices)
+- analyzeQtl2.Rmd (local use; exploratory)
+
+### R folder
+
+These are for use in Rmd and in SLURM.
+
+SLURM setup and Rscripts
+
+- SLURMsetup.R (run this remotely to install packages)
+- mediateRuns.R (production runs across targets and mediators; see mediateRuns.sh)
+- mediateSims.R (production runs for simulations; see slurmSim.sh & mediateSims.sh)
+- SimsSummary.R (initial summary at submit node to aggregate simulation data)
+
+Data import and setup
+
+- dataJax.R
+- dataJaxMadison.R
+- dataMadison.R
+- dataPeaks.R
+
+Local batch runs to create multiple Rmd files.
+
+- batchOne.R
+- batchTarget.R
+- runAnalysis.R
+- runMediation.R
+- runOne.R
+
+Various utilities
+
+- extract_tables.R
+- med_comp.R
+- mediateQtl2.R (this is the key routine)
+- mediator_quants.R
+- qtl2_render.R
+- qtl2_rmd.R
+- shuffleQtl2.R
 
 This is built off a script developed by Dan Gatti. In Rstudio, use `Knit with Parameters` from <kbd>Knit</kbd> script pulldown menu to adjust parameter settings. this can also be done with the following commands (assuming you are in the parent folder of qtl2rmd):
-
-```
-RmdFilename <- "qtl2rmd/analyzeQtl2.Rmd"
-# Preset any `params` parameters you like
-param_vals <- list(
-  pheno_name = "Ins_tAUC",
-  coefType = "blup",
-  dataSetup = "dataJax.R")
-
-# Interactive setting of other parameters
-  if(interactive()) {
-  param_vals <- rmarkdown::knit_params_ask(
-    RmdFilename,
-    params = param_vals)
-}
-
-# Preset output format and filename.
-# Only HTML enables plotly use.
-out_format <- "html_document"
-out_filename <- "myoutput.html"
-
-# Render document
-rmarkdown::render(
-  RmdFilename,
-  output_format=out_format,
-  output_file=out_filename,
-                    params=param_vals)                                           
-```
-
-The script above (without the interactive call) could be used in a batch submission
-to produce a report or set of reports.
 
 The [analyzeQtl2.Rmd](analyzeQtl2.Rmd) Rmarkdown file depends on the following packages and their dependencies:
 
