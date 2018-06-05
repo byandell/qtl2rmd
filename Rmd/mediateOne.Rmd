@@ -83,7 +83,7 @@ output:
 ---
 
 ```{r setup, include=FALSE, message = FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, comment = "")
 library(dplyr)
 library(ggplot2)
 library(plotly)
@@ -102,27 +102,8 @@ dataSetup <- file.path("../R", params$dataSetup)
 ```
 
 
-This document has a variety of strategies, but here is current recommendation. Assumed is that we have identified a `target` (`r target_name`), a chromosome (`r chr_id`), and a `mediator` (`r mediator_name`).
+This document focuses on a `target` (`r target_name`), a chromosome (`r chr_id`), and a `mediator` (`r mediator_name`). There are three analyses, using drivers based on 1) allele genotype probabilities, 2) SNP genotype probabilities, and 3) SNP pattern to impute genotype probabilities. The driver is based on the best SNP distribution pattern for the `target` but is chosen at the peak LOD for the SNP with that distribution pattern. Finally, The region within 1.5 LOD (or equivalently in terms of IC) of the peak is retained as the best region.
 
-- scan for best `mediator` of `target`
-    + use `target` whole genome (allele-based) scan to identify peak
-    + use allele probabilities at mediator peaks as intial `driver`
-    + use 3-level SNP probabilites at mediator SNP peaks as refined `drivers`
-- scan for best driver of `target` and `mediator`
-    + use region and 3-level SNP probabilities (as `drivers`) already identified
-    + for each `driver`, compute joint LOD (`undecided` model) of `target` and `mediator`
-    + identify sub-region of highest joint LOD (within 1.5 of peak)
-    + perform CMST on all drivers within sub-region
-    + restrict to drivers that have highest recomputed joint LOD within sub-region
-    + find best `pvalue`s and `triad`, noting SNP distribution pattern (`sdp`)
-
-The reason to do multiple checks is the following:
-
-* allele-based is smoother but cruder: useful for identifying broad region
-* joint LOD identifies most likely region for best fit
-* pattern of missing data important to balance in CMST tests, changing joint LOD
-* need to consider relative magnitude of joint LOD, `sdp` and pvalue together
-    + can get more significant `pvalue` for other `sdp`s that are worse models
 
 ```{r eval=FALSE}
 data.frame(params_value = unlist(params))
@@ -157,17 +138,16 @@ peaks <- readxl::read_excel(file.path(datapath,"Ex vivo peak summary with QTL co
                 chr == chr_id)
 ```
 
-```{r}
+```{r ins_peaks}
 if(!nrow(peaks)) {
   cat("no peaks for", target_name, "\n")
 #  knitr::knit_exit()
 }
-```
-
-```{r ins_peaks}
 pos_Mbp <- peaks$pos[1]
-if(is.na(pos_Mbp))
+if(is.na(pos_Mbp)) {
   pos_Mbp <- params$pos_Mbp
+}
+cat("using peak position", pos_Mbp, "\n")  
 ```
 
 ```{r peak_mar,message=FALSE}
@@ -176,16 +156,6 @@ ap <- qtl2::pull_genoprobpos(genoprobs, peak_mar)
 ```
 
 ### Mediator information
-
-```{r}
-snpScan <- as.numeric(params$snpScan)
-if(is.na(snpScan) || snpScan <= 0) {
-  start <- end <- NULL
-} else {
-  start <- pos_Mbp - snpScan
-  end <- pos_Mbp + snpScan
-}
-```
 
 ```{r}
 mrna <- query_mrna(chr_id)
@@ -209,8 +179,6 @@ mrna.annot <-
     id == mrna_id)
 rm(mrna)
 ```
-
-This is built off script developed by Dan Gatti, revised and extended by Brian Yandell. The focus of this document is phenotype target `r target_name` mediated by `r mediator_name` on chromosome `r chr_id`. The peak for `r target_name` allele genome scan is at `r pos_Mbp`, which is the starting point for this analysis. 
 
 ## Genome allele scan on chr `r chr_id`
 
@@ -240,6 +208,16 @@ qtl_tar <-
     kinship = kinship, addcovar = addcovar, cores = 2)
 ```
 
+```{r}
+snpScan <- as.numeric(params$snpScan)
+if(is.na(snpScan) || snpScan <= 0) {
+  start <- end <- NULL
+} else {
+  start <- pos_Mbp - snpScan
+  end <- pos_Mbp + snpScan
+}
+```
+
 The mediator `r mediator_name` has a peak nearby at `r mrna_pos`.
 
 ```{r fig.width=12}
@@ -250,7 +228,7 @@ qtl_med <-
     kinship = kinship, addcovar = addcovar, cores = 2)
 ```
 
-It is useful to look at the genome scan of target adjusted by the mediator, to see that most of the signal is removed.
+It is useful to look at the genome scan of target adjusted by the mediator, to see if most of the signal is removed.
 
 ```{r fig.width=12}
 qtl_tar_med <-
@@ -317,7 +295,7 @@ qtl_cmst[,6] <- qtl_med_tar[,1] + m.t + qtl_tar[,1]
 rm(qtl_tar, qtl_med, qtl_tar_med)
 ```
 
-```{r fig.width=12}
+```{r eval=FALSE, fig.width=12}
 autoplot(qtl_cmst, map, lodcolumn = c(4,6),
          main = paste(target_name, "given", mediator_name)) +
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
@@ -331,26 +309,45 @@ autoplot(qtl_cmst, map, lodcolumn = 1:4,
 
 Here we focus in on the interesting region. From this it looks like the undecided model is best, but this is simply an artefact of having a richer model (more parameters). 
 
+```{r}
+qtl2::find_peaks(qtl_cmst[,1:4],
+                 map) %>%
+  arrange(desc(lod))
+```
+
 ```{r fig.width=12}
 autoplot(qtl_cmst, map, lodcolumn = 1:4, xlim = c(start,end),
          main = paste(target_name, "given", mediator_name)) +
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
-When we adjust for model complexity using BIC, then the causal model comes out on top.
+```{r}
+out <- qtl2::find_peaks((qtl_cmst - matrix(penalty, nrow(qtl_cmst), ncol(qtl_cmst), byrow = TRUE))[,1:4],
+                 map, threshold = -100) %>%
+  arrange(desc(lod))
+```
+
+Adjust for model complexity using BIC, then the ``r out$lodcolumn`` model comes out on top.
+
+```{r}
+out
+```
 
 ```{r fig.width=12}
 autoplot(qtl_cmst - matrix(penalty, nrow(qtl_cmst), ncol(qtl_cmst), byrow = TRUE),
          map, lodcolumn = 1:4, xlim = c(start, end),
-         main = paste(target_name, "given", mediator_name)) +
+         main = paste(target_name, "given", mediator_name),
+         ylab = "BIC on log10 scale") +
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
-Below is a graph of the mediation scan, now presented as the difference in LOD for the target and the target adjusted by mediator. Notice that the peak for the causal models is near the mediator peak of `r mrna_pos`, while the peak of the mediation scan is (mistakenly) at the peak for the target at `r pos_Mbp`.
+Below is a graph of the mediation scan, now presented as the difference in LOD for the target and the target adjusted by mediator. Notice that the peak mediation scan is at `r qtl2::find_peaks(qtl_cmst[,5, drop = FALSE], map, threshold = -100)`, which need not be near the `target` peak (`r pos_Mbp`) or `mediator` peak (`r mrna_pos`).
 
 ```{r fig.width=12}
-autoplot(qtl_cmst, map, lodcolumn = 5, xlim = c(start, end),
-         main = paste(target_name, "given", mediator_name)) +
+autoplot(qtl_cmst, map, lodcolumn = 5,
+         xlim = c(min(pos_Mbp, start), max(pos_Mbp, end)),
+         main = paste(target_name, "given", mediator_name),
+         ylab = "mediation LOD drop") +
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
@@ -456,7 +453,7 @@ autoplot(assoc_cmst$lod, assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pheno",
          show_all_snps = FALSE, main = paste(target_name, "given", mediator_name))
 ```
 
-It is helpful to examine the SNPs organized by their SNP pattern, looking at only the top one or two patterns. This looks a lot more like the genome allele scan.
+It is helpful to examine the SNPs organized by their SNP distribution pattern, looking at only the top one or two patterns. This looks a lot more like the genome allele scan.
 
 ```{r fig.width=12}
 autoplot(assoc_cmst$lod, assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
@@ -502,14 +499,17 @@ Notice that the causal peak is a bit different from that for the mediator.
 autoplot(tmp,
          assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
          patterns = "hilit", drop_hilit = 2.5, xlim = c(start, end),
-         show_all_snps = FALSE, main = paste(target_name, "given", mediator_name)) +
+         show_all_snps = FALSE,
+         main = paste(target_name, "given", mediator_name),
+         ylab = "BIC on log10 scale") +
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
 ```{r eval=FALSE}
 autoplot(assoc_cmst$lod, assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
          patterns = "hilit", drop_hilit = 2.5, xlim = c(start_snp, end_snp),
-         show_all_snps = FALSE, main = paste(target_name, "given", mediator_name)) +
+         show_all_snps = FALSE,
+         main = paste(target_name, "given", mediator_name)) +
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
@@ -517,7 +517,9 @@ autoplot(assoc_cmst$lod, assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
 autoplot(tmp,
          assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
          patterns = "hilit", drop_hilit = 2.5, xlim = c(start_snp, end_snp),
-         show_all_snps = FALSE, main = paste(target_name, "given", mediator_name)) +
+         show_all_snps = FALSE,
+         main = paste(target_name, "given", mediator_name),
+         ylab = "BIC on log10 scale") +
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
@@ -570,8 +572,8 @@ for(i in peak_snps) {
 (tar_best <- bind_rows(lapply(tar_test[peak_snps], summary), .id = "snp_id") %>%
   mutate(source = c("target","mediator","causal"),
          pos_snp = pos_snps) %>%
-  select(symbol,chr, pos_snp, snp_id, pvalue, LR, triad, mediation, everything())) %>%
-  select(symbol,chr,pos_snp, snp_id, pvalue,triad,mediation,LR) %>%
+  select(source, symbol,chr, pos_snp, snp_id, pvalue, LR, triad, mediation, everything())) %>%
+  select(source, symbol,chr,pos_snp, snp_id, pvalue,triad,mediation,LR) %>%
   rename(lod = "LR") %>%
   mutate(lod = lod / log(10),
          mediation = mediation / log(10))
@@ -675,7 +677,8 @@ ggplot2::ggplot(best_snp) +
 ggplot2::ggplot(best_snp) +
   ggplot2::aes(pos, IC, col = pattern, group = triad) +
   ggplot2::geom_point() +
-  ggplot2::facet_wrap(~ triad)
+  ggplot2::facet_wrap(~ triad) +
+  ggplot2::ylab("BIC on log10 scale")
 ```
 
 ## Mediation triad with allele probs
@@ -765,8 +768,6 @@ autoplot(pat_cmst - matrix(penalty, nrow(pat_cmst), ncol(pat_cmst), byrow = TRUE
   geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
 ```
 
-Want to reproduce analysis with scan1 here.
-
 ```{r}
 mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
 driver_signif <- mrna.annot$driver
@@ -795,17 +796,10 @@ med_pat <- intermediate::mediation_test(target = target,
          mediation = mediation / log(10))
 ```
 
+```{r}
+med_pat$test %>%
+  rename(lod = LR) %>%
+  mutate(lod = lod / log(10),
+         IC = IC / log(10))
+```
 
-# Conclusion?
-
-We have 3 scores for thousands of SNPs in a region:
-
-1. LOD for target given SNP
-2. LOD for mediator given SNP
-3. LOD for adjusted target (by mediator) given SNP
-
-We can combine these together and do causal model selection test for every SNP, then pick the best one. The best model for `r mediator_name` on `r target_name` is causal (p = `r format(signif(tar_best$pvalue[3],3))`) at position `r round(tar_best$pos_snp[3], 3)`. 
-
-However, if we relied on the peak position from the allele-based genome scan, `r tar_best$pos_snp[1]`, we would conclude weakly that `r mediator_name` is reactive (p = `r signif(tar_best$pvalue[1], 3)`). If we chose the best SNP for `r mediator_name`, located at `r round(mrna_pos, 3)`, we would conclude a causal model, but with less significance (p = `r signif(tar_best$pvalue[2], 3)`).
-
-This generated some new ideas of using the SNP association mapping across all SNPs to compare target to target adjusted by mediator, and then focus only on SNPs that have high LOD for target. This gives the chance to look at SNP pattern. But, for this case, it ultimately did not yield an interesting result.

@@ -65,8 +65,8 @@ This is built off a script developed by Dan Gatti. In Rstudio, use `Knit with Pa
 
 The [analyzeQtl2.Rmd](analyzeQtl2.Rmd) Rmarkdown file depends on the following packages and their dependencies:
 
-- tidyverse
-- plotly
+- [tidyverse](https://www.tidyverse.org/)
+- [plotly](https://plot.ly/)
 - [AnnotationHub](https://bioconductor.org/packages/release/bioc/html/AnnotationHub.html) (if using [dataJax.R](dataJax.R) data setup)
 - [qtl2](https://github.com/rqtl/qtl2)
 - [qtl2ggplot](https://github.com/byandell/qtl2ggplot)
