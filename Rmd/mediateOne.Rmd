@@ -5,14 +5,21 @@ params:
     value: GLP1_G83_ins_secrete_gm
   mediator_name:
     label: Mediator
-    value: Hunk
+    value: Ptpn18
   chr_id:
     label: Chromosome
-    value: 16
+    value: 1
   pos_Mbp:
     input: numeric
     value: 90
     label: Peak position
+  SNPlevels:
+    choices:
+      - 2
+      - 3
+    input: select
+    value: 2
+    label: Number of SNP levels
   coefType:
     choices:
     - coef
@@ -195,7 +202,7 @@ m <- qtl2::get_common_ids(genoprobs,
 genoprobs <- subset(genoprobs, ind = m)
 target <- target[m,, drop = FALSE]
 mediator <- mrna.expr[m,, drop = FALSE]
-kinship <- qtl2::decomp_kinship(kinship[m,m])
+kinship <- kinship[m,m]
 addcovar <- addcovar[m,, drop=FALSE]
 ```
 
@@ -394,145 +401,38 @@ autoplot(med_triad, fitline = TRUE,
          tname = target_name, mname = params$mediator_name, dname = peak_mar)
 ```
 
-# Association mapping for causal models
-
-Here we do the same trick for SNP association scans to look at the four causal models.
+# Mediation test in peak region.
 
 ```{r}
-pairprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
-pairmap <- pairprobs$map
-pairprobs <- pairprobs$probs
+if(params$SNPlevels == 3) {
+  genoprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
+  map <- genoprobs$map
+  genoprobs <- genoprobs$probs
+} else {
+  genoprobs <- query_probs(chr = chr_id, start = start, stop = end)
+  map <- genoprobs$map
+  genoprobs <- genoprobs$probs
+}
 ```
 
-```{r assoc_tar,fig.width=12}
-assoc_tar = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = target,
-                      kinship = kinship,
-                      addcovar = addcovar, chr = chr_id, start = start,
-                      end = end, query_func = query_variant, cores = 4,
-                      keep_all_snps = FALSE)
+```{r med_joint,fig.width=12}
+med_index <- 
+  intermediate::mediation_qtl2(target,
+                               mediator,
+                               annotation, covar, covar, kinship,
+                               genoprobs, map,
+                               drop_lod = 1.5, query_variant,
+                               cores = 4)
 ```
 
-```{r assoc_med,fig.width=12}
-assoc_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = mediator,
-                      kinship = kinship,
-                      addcovar = addcovar, chr = chr_id, start = start,
-                      end = end, query_func = query_variant, cores = 4,
-                      keep_all_snps = FALSE)
-```
+Still some challenges when SNPlevels is 3 to reproduce what is below. Need to pause for now.
 
-```{r assoc_tar_med,fig.width=12}
-assoc_tar_med = qtl2::scan1snps(genoprobs = pairprobs[,chr_id], map = pairmap, 
-                      pheno = target,
-                      kinship = kinship,
-                      addcovar = cbind(addcovar, mediator), chr = chr_id, start = start,
-                      end = end, query_func = query_variant, cores = 4,
-                      keep_all_snps = FALSE)
+```{r}
+plot(med_index)
 ```
 
 ```{r}
-assoc_cmst <- assoc_tar
-assoc_cmst$lod <- cbind(assoc_med$lod, assoc_tar$lod, assoc_tar$lod,
-                        assoc_tar_med$lod, assoc_tar$lod)
-colnames(assoc_cmst$lod) <- c("causal","reactive","independent","undecided","mediation")
-assoc_cmst$lod[,1] <- t.m + assoc_med$lod[,1]
-assoc_cmst$lod[,2] <- m.t + assoc_tar$lod[,1]
-assoc_cmst$lod[,3] <- assoc_tar$lod[,1] + assoc_med$lod[,1] 
-assoc_cmst$lod[,4] <- assoc_tar_med$lod[,1] + t.m + assoc_med$lod[,1] 
-assoc_cmst$lod[,5] <- assoc_tar$lod[,1] - assoc_tar_med$lod[,1]
-```
-
-```{r message=FALSE, warning=FALSE}
-rm(assoc_tar, assoc_med, assoc_tar_med)
-invisible(gc(verbose = FALSE))
-```
-
-```{r fig.height=12,fig.width=12}
-autoplot(assoc_cmst$lod, assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pheno",
-         show_all_snps = FALSE, main = paste(target_name, "given", mediator_name))
-```
-
-It is helpful to examine the SNPs organized by their SNP distribution pattern, looking at only the top one or two patterns. This looks a lot more like the genome allele scan.
-
-```{r fig.width=12}
-autoplot(assoc_cmst$lod, assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
-         patterns = "hilit", drop_hilit = 2.5,
-         show_all_snps = FALSE, main = paste(target_name, "given", mediator_name)) +
-  geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
-```
-
-Once again, to adjust for model complexity using BIC to compare these models. Once we do that,
-the causal model emerges. [LODs with penalties were rescaled so that the causal model has the same value as its LOD.]
-
-```{r}
-nmar_snp <- 3
-penalty_snp <- c(nmar_snp, nmar_snp, 2*(nmar_snp-1), 2*nmar_snp-1,0) * log10(nind) / 2
-```
-
-```{r}
-tmp <- assoc_cmst$lod -
-  matrix(penalty_snp, nrow(assoc_cmst$lod), ncol(assoc_cmst$lod), byrow = TRUE) +
-  penalty_snp[1]
-```
-
-```{r ins_assoc_rescan,fig.width=12}
-(ts <- qtl2pattern::top_snps_all(tmp, assoc_cmst$snpinfo) %>%
-   group_by(pheno) %>%
-   summarize(minpos = min(pos[lod == max(lod)]),
-             maxpos = max(pos[lod == max(lod)]),
-             snp_id = snp_id[which.max(lod)][1],
-             sdp = paste(sort(unique(sdp[lod == max(lod)], collapse = ","))),
-             lod = max(lod)) %>%
-  arrange(desc(lod))) %>%
-  head(10)
-```
-
-```{r}
-start_snp <- ts$minpos[1] - params$offset
-end_snp <- ts$maxpos[1] + params$offset
-```
-
-Notice that the causal peak is a bit different from that for the mediator.
-
-```{r fig.width=12}
-autoplot(tmp,
-         assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
-         patterns = "hilit", drop_hilit = 2.5, xlim = c(start, end),
-         show_all_snps = FALSE,
-         main = paste(target_name, "given", mediator_name),
-         ylab = "BIC on log10 scale") +
-  geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
-```
-
-```{r eval=FALSE}
-autoplot(assoc_cmst$lod, assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
-         patterns = "hilit", drop_hilit = 2.5, xlim = c(start_snp, end_snp),
-         show_all_snps = FALSE,
-         main = paste(target_name, "given", mediator_name)) +
-  geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
-```
-
-```{r fig.width=12}
-autoplot(tmp,
-         assoc_cmst$snpinfo, lodcolumn = 1:4, facet = "pattern",
-         patterns = "hilit", drop_hilit = 2.5, xlim = c(start_snp, end_snp),
-         show_all_snps = FALSE,
-         main = paste(target_name, "given", mediator_name),
-         ylab = "BIC on log10 scale") +
-  geom_vline(xintercept = c(mrna_pos, pos_Mbp), col = "grey")
-```
-
-Find region of maximum IC.
-
-```{r}
-maxIC <- max(c(tmp[,-5]))
-m <- which(apply(tmp[,-5], 1, max) >= maxIC - 1.5)
-range(assoc_cmst$snpinfo$pos[m])
-```
-
-```{r}
-rm(tmp)
+plot(med_index, "IC")
 ```
 
 ## Mediation test with best SNPs
