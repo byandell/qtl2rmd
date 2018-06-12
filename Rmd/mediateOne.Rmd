@@ -18,7 +18,7 @@ params:
       - 2
       - 3
     input: select
-    value: 2
+    value: 3
     label: Number of SNP levels
   coefType:
     choices:
@@ -401,7 +401,7 @@ autoplot(med_triad, fitline = TRUE,
          tname = target_name, mname = params$mediator_name, dname = peak_mar)
 ```
 
-# Mediation test in peak region.
+# Mediation test on SNPs in peak region.
 
 ```{r}
 if(params$SNPlevels == 3) {
@@ -419,13 +419,11 @@ if(params$SNPlevels == 3) {
 med_index <- 
   intermediate::mediation_qtl2(target,
                                mediator,
-                               annotation, covar, covar, kinship,
+                               mrna.annot, covar, covar, kinship,
                                genoprobs, map,
                                drop_lod = 1.5, query_variant,
                                cores = 4)
 ```
-
-Still some challenges when SNPlevels is 3 to reproduce what is below. Need to pause for now.
 
 ```{r}
 plot(med_index)
@@ -435,161 +433,32 @@ plot(med_index)
 plot(med_index, "IC")
 ```
 
-## Mediation test with best SNPs
-
-We now conduct mediation tests at the three SNPs, best for target, best for mediator, and best for causal models.
-
-```{r peak_snps,message=FALSE}
-pos_snps <- c(pos_Mbp, mrna_pos, mean(ts$minpos[1], ts$maxpos[1]))
-# For positions from allele scan, find closest SNP that matches sdp.
-peak_snps <- 
-  qtl2::find_index_snp(
-    assoc_cmst$snpinfo,
-    qtl2::find_marker(
-      dplyr::filter(
-        assoc_cmst$snpinfo,
-        sdp == ts$sdp[1]),
-      chr_id, pos_snps[1:2]))
-peak_snps <- c(peak_snps, ts$snp_id[1])
-sp <- qtl2::genoprob_to_snpprob(pairprobs, assoc_cmst$snpinfo)[[chr_id]][,, peak_snps]
-```
-
 ```{r}
-tar_test <- list()
-for(i in peak_snps) {
-  tar_test[[i]] <- intermediate::mediation_test(
-    target = target,
-         mediator = mediator,
-         annotation = mrna.annot,
-         covar_tar = covar,
-         covar_med = covar,
-         kinship = kinship,
-         driver = sp[,,i])
-}
-```
-
-```{r}
-(tar_best <- bind_rows(lapply(tar_test[peak_snps], summary), .id = "snp_id") %>%
-  mutate(source = c("target","mediator","causal"),
-         pos_snp = pos_snps) %>%
-  select(source, symbol,chr, pos_snp, snp_id, pvalue, LR, triad, mediation, everything())) %>%
-  select(source, symbol,chr,pos_snp, snp_id, pvalue,triad,mediation,LR) %>%
-  rename(lod = "LR") %>%
-  mutate(lod = lod / log(10),
-         mediation = mediation / log(10))
-```
-
-# Mediation test over interval
-
-```{r sp_get,message=FALSE}
-sp <- qtl2::genoprob_to_snpprob(pairprobs, assoc_cmst$snpinfo)[[chr_id]]
-```
-
-```{r}
-mediators <- mediator[, rep(mrna_id, dim(sp)[3]), drop = FALSE]
-colnames(mediators) <- dimnames(sp)[[3]]
-```
-
-```{r}
-m <- match(mrna_id, mrna.annot$id)
-annotation <- mrna.annot[rep(m, ncol(mediators)),]
-annotation$id <- colnames(mediators)
-annotation$driver <- colnames(mediators)
-annotation$pos <- assoc_cmst$snpinfo$pos
-annotation$qtl_pos <- NULL
-annotation$qtl_lod <- NULL
-```
-
-Within interval already selected, pick the region of maximum joint LOD (within 1.5 of peak).
-Then run mediation test and find the best models (using BIC among the four models) and report
-out the `pvalue`s.
-
-```{r}
-m <- which(assoc_cmst$lod[,"undecided"] >= max(assoc_cmst$lod[,"undecided"]) - 1.5)
-rng <- range(assoc_cmst$snpinfo$pos[m])
-```
-
-```{r}
-m <- which(annotation$pos >= rng[1] & annotation$pos <= rng[2])
-```
-
-```{r}
-med_test_scan <- intermediate::mediation_test(
-    target = target,
-    mediator = mediators[,m],
-    annotation = annotation[m,],
-    covar_tar = covar,
-    covar_med = covar,
-    kinship = kinship,
-    driver = NULL,
-    driver_med = sp[,,m])
-```
-
-```{r}
-best_snp <-
-  (med_test_scan$test %>%
-     filter(model == "undecided",
-            LR >= max(LR) - 1.5 * log(10)))$id
-tmp <- med_test_scan$best
-m <- match(best_snp, tmp$id)
-best_snp <- tmp[m,]
-m <- match(best_snp$id, assoc_cmst$snpinfo$snp_id)
-best_snp$sdp <- assoc_cmst$snpinfo$sdp[m]
-best_snp <- 
-  best_snp %>%
-  arrange(pvalue) %>%
-  mutate(pattern = qtl2pattern::sdp_to_pattern(sdp, LETTERS[1:8]))
-```
-
-```{r}
-topsnps <- 
-  qtl2::index_snps(map,
-    query_variant(chr_id, start, end)) %>%
-  filter(pos >= min(best_snp$pos),
-         pos <= max(best_snp$pos),
-         sdp %in% unique(best_snp$sdp))
-m <- match(best_snp$id, topsnps$snp_id)
-best_snp$index <- topsnps$index[m]
-topsnps <- left_join(topsnps,
-                     best_snp %>%
-                       select(-lod) %>%
-                       rename(lod = "LR") %>%
-                       mutate(lod = lod / log(10)) %>%
-                       select(index, triad, lod, pvalue, symbol),
-                     by = "index")
 write.csv(
-  topsnps, 
+  med_index$best %>%
+    select(-lod) %>%
+    rename(lod = "LR") %>%
+    mutate(lod = lod / log(10)),
   file = file.path(
     resultpath, 
     paste0(target_name, "_", chr_id, "_", mediator_name, "_topsnps.csv")))
 ```
 
-The plots are based on `r nrow(best_snp)` index SNPs, but the number of SNPs with this pattern in this range is `r nrow(topsnps)`. See results in file `filename`.
-
 ```{r}
-ggplot2::ggplot(best_snp) +
-  ggplot2::aes(pos, -log10(pvalue), col = pattern, group = triad) +
-  ggplot2::geom_point() +
-  ggplot2::facet_wrap(~ triad)
-```
-
-```{r}
-ggplot2::ggplot(best_snp) +
-  ggplot2::aes(pos, IC, col = pattern, group = triad) +
-  ggplot2::geom_point() +
-  ggplot2::facet_wrap(~ triad) +
-  ggplot2::ylab("BIC on log10 scale")
+knitr::knit_exit()
 ```
 
 ## Mediation triad with allele probs
 
 We look again at the mediation triad plots of data. The first uses the SNP at the target. It overlays unrestricted line fits by SNP level.
 
+**This needs to get driver from med_index fit or somewhere.**
+
 ```{r fig.width=12}
 med_triad <- intermediate::mediation_triad(target = target,
          mediator = mediator,
          driver = genoprobs[[chr_id]][,,mrna_driver],
-         sdp = ts$sdp[1],
+         sdp = med_index$best$sdp[1],
          covar_tar = addcovar,
          covar_med = addcovar,
          kinship = kinship)
@@ -599,10 +468,11 @@ autoplot(med_triad, tname = target_name, mname = params$mediator_name, dname = p
 This second set of plots uses the best SNP for the causal model.
 
 ```{r fig.width=12}
+
 med_snp_triad <- intermediate::mediation_triad(target = target,
          mediator = mediator,
-         driver = sp[,, best_snp$id[1]],
-         sdp = best_snp$sdp[1],
+         driver = driver_med[,, med_index$best$driver[1]],
+         sdp = med_index$best$sdp[1],
          covar_tar = addcovar,
          covar_med = addcovar,
          kinship = kinship,
@@ -613,6 +483,8 @@ autoplot(med_snp_triad, fitline = TRUE,
 ```
 
 # SNP Pattern scan
+
+** This needs rework.**
 
 ```{r}
 patprobs <- 
