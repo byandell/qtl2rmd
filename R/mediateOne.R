@@ -4,6 +4,7 @@ params <- list(
   pos_Mbp = NULL,
   dataSetup = "R/dataJaxMadison.R",
   snpScan = 10,
+  SNPlevels = 2,
   offset = 2,
   datapath = 'data',
   resultpath = 'results',
@@ -59,9 +60,13 @@ if(is.na(snpScan) || snpScan <= 0) {
   end <- pos_Mbp + snpScan
 }
 
-map <- query_probs(chr_id, start, end)
-genoprobs <- map$probs
-map <- map$map
+# Reduce to common IDs
+m <- qtl2::get_common_ids(target,
+                          addcovar,
+                          complete.cases = TRUE)
+target <- target[m,, drop = FALSE]
+kinship <- kinship[m,m]
+addcovar <- addcovar[m,, drop=FALSE]
 
 ### Mediator information
 
@@ -88,23 +93,15 @@ out <- list()
 
 for(mediator_id in med_signif) {
   mediator_name <- (mrna.annot %>% filter(id == mediator_id))$symbol
-  mediator <- as.matrix(mrna$expr[, mediator_id, drop = FALSE])
+  cat(mediator_id, mediator_name, "\n", file = stderr())
+
+  mediator <- as.matrix(mrna.expr[, mediator_id, drop = FALSE])
   annotation <- 
     dplyr::filter(
       mrna.annot,
       id == mediator_id)
   
   # Association mapping for causal models
-  
-  # Reduce to common IDs
-  m <- qtl2::get_common_ids(genoprobs,
-                            target,
-                            addcovar,
-                            complete.cases = TRUE)
-  genoprobs <- subset(genoprobs, ind = m)
-  target <- target[m,, drop = FALSE]
-  kinship <- kinship[m,m]
-  addcovar <- addcovar[m,, drop=FALSE]
   
   # Mediation test on SNPs in peak region.
   if(params$SNPlevels == 3) {
@@ -129,11 +126,11 @@ for(mediator_id in med_signif) {
 saveRDS(out, 
         file = file.path(resultpath,
                          paste0(target_name, "_", chr_id, "_med_qtl2.rds")))
-write.csv(
-  med_index$best %>%
-    select(-lod) %>%
-    rename(lod = "LR") %>%
-    mutate(lod = lod / log(10)),
-  file = file.path(
-    resultpath, 
-    paste0(target_name, "_", chr_id, "_", "_topsnps.csv")))
+#write.csv(
+#  med_index$best %>%
+#    select(-lod) %>%
+#    rename(lod = "LR") %>%
+#    mutate(lod = lod / log(10)),
+#  file = file.path(
+#    resultpath, 
+#    paste0(target_name, "_", chr_id, "_", "_topsnps.csv")))
