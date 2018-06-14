@@ -131,7 +131,8 @@ for(mediator_id in med_signif) {
                                  mediator,
                                  annotation, covar, covar, kinship,
                                  genoprobs, map,
-                                 drop_lod = 1.5, query_variant,
+                                 drop_lod = 1.5, min_lod = 3,
+                                 query_variant,
                                  cores = 4, target_scan)
 }
 

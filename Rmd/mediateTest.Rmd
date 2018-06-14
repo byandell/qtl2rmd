@@ -180,8 +180,8 @@ ggplot(mrna.annot %>%
 ```
 
 ```{r}
-mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
-driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
+mrna.annot$driver_names <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
+driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver_names), drop = FALSE]
 ```
 
 # Mediation with allele probs.
@@ -361,7 +361,7 @@ Set up drivers for mediators.
 
 ```{r}
 med_snp <- ts_med$snp_id
-mrna.annot$driver <- med_snp
+mrna.annot$driver_names <- med_snp
 driver_med_snp <- sp_peak[[chr_id]][,, unique(med_snp), drop = FALSE]
 ```
 
@@ -530,8 +530,8 @@ autoplot(scan1_pat, map)
 Want to reproduce analysis with scan1 here.
 
 ```{r}
-mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
-driver_signif <- mrna.annot$driver
+mrna.annot$driver_names <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
+driver_signif <- mrna.annot$driver_names
 m <- which(driver_signif %in% dimnames(patprobs[[chr_id]])[[3]])
 driver_signif <- driver_signif[m]
 driver_pat <- patprobs[[chr_id]][,,unique(c(peak_mar, driver_signif)), drop = FALSE]

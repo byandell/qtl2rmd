@@ -2,10 +2,13 @@
 params:
   target_name:
     label: Target
-    value: GLP1_G83_ins_secrete_gm
+    value: AA_G83_ins_secrete_gm
   chr_id:
     label: Chromosome
     value: 1
+  minpvalue:
+    label: Minimum p-value
+    value: 0.05
   dataSetup:
     choices:
     - dataJax.R
@@ -25,7 +28,7 @@ params:
 ---
 
 ---
-title: "Summary for One Target"
+title: Summary for Target `r params$target_name` Chr `r params$chr_id`
 author: "Brian S. Yandell"
 date: "`r  format(Sys.time(), '%d %B %Y')`"
 output: html_document
@@ -61,13 +64,15 @@ target_index <-
 ```
 
 ```{r eval=FALSE}
-# See R/mediateOne.R and intermediate::mediation_qtl2 for ts.
+# Updates due to shifing code base.
 target_index <-
   purrr::map(
     target_index,
     function(x) {
-      x$params$target_LR <- ts$lod[1] * log(10)
-      x$params$target_index <- ts$pos[1]
+      m <- match("^driver$", names(x))
+      if(!is.na(m)) names(x)[m] <- "driver_names"
+      m <- match("^driver$", names(x$best))
+      if(!is.na(m)) names(x$best)[m] <- "driver_names"
       x
     })
 class(target_index) <- c("listof_mediation_index", class(target_index))
@@ -82,27 +87,46 @@ intermediate::ggplot_listof_mediation_index(target_index)
 ```
 
 ```{r}
-plotly::ggplotly(
-  intermediate::ggplot_listof_mediation_index(
-    target_index, "causal"))
+(calls <- 
+  apply(
+    sapply(
+      target_index,
+      function(x) table(x$best$triad[x$best$pvalue <= params$minpvalue])),
+    1, function(x) sum(x>0)))
 ```
 
 ```{r}
-plotly::ggplotly(
-  intermediate::ggplot_listof_mediation_index(
-    target_index, "reactive"))
+i <- names(calls[1]) # "causal"
+if(calls[i]) {
+  p <- intermediate::ggplot_listof_mediation_index(
+    target_index, i, params$minpvalue)
+  if(!is.null(p))
+    plotly::ggplotly(p)
+}
 ```
 
 ```{r}
-plotly::ggplotly(
+i <- names(calls[2]) # reactive
+if(calls[i]) {
   intermediate::ggplot_listof_mediation_index(
-    target_index, "independent"))
+    target_index, i, params$minpvalue)
+}
 ```
 
 ```{r}
-plotly::ggplotly(
+i <- names(calls[3]) # independent
+if(calls[i]) {
   intermediate::ggplot_listof_mediation_index(
-    target_index, "undecided"))
+    target_index, i, params$minpvalue)
+}
+```
+
+```{r}
+i <- names(calls[4]) # undecided
+if(calls[i]) {
+  intermediate::ggplot_listof_mediation_index(
+    target_index, i, params$minpvalue)
+}
 ```
 
 Best SNPs are output to file `r paste0(target_name, "_", chr_id, "_", "_topsnps.csv")`.

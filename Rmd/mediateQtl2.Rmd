@@ -198,8 +198,8 @@ rm(mrna)
 ### Mediation with allele probs.
 
 ```{r}
-mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
-driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
+mrna.annot$driver_names <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
+driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver_names), drop = FALSE]
 ```
 
 ```{r med_test,fig.width=9,fig.height=6}
@@ -362,7 +362,7 @@ peak_snp <- ts$snp_id[1]
 
 ```{r}
 m <- match(mrna.annot$id, ts_med$pheno)
-mrna.annot$driver <- ts_med$snp_id[m]
+mrna.annot$driver_names <- ts_med$snp_id[m]
 driver_med_snp <-
   qtl2::genoprob_to_snpprob(
     pairprobs, 

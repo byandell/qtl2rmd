@@ -2,13 +2,13 @@
 params:
   target_name:
     label: Target
-    value: GLP1_G83_ins_secrete_gm
+    value: AA_G83_ins_secrete_gm
   mediator_name:
     label: Mediator
-    value: Ptpn18
+    value: Hunk
   chr_id:
     label: Chromosome
-    value: 1
+    value: 16
   pos_Mbp:
     input: numeric
     value: 90
@@ -37,7 +37,7 @@ params:
     value: dataJaxMadison.R
   docTitle:
     label: Document title
-    value: Mediation Scan
+    value: Mediation Multi
   snpScan:
     input: numeric
     label: Width for SNP scan (0 = whole chromosome)
@@ -383,6 +383,14 @@ med_med <- intermediate::mediation_test(target = target,
   rename(lod = "LR") %>%
   mutate(lod = lod / log(10),
          mediation = mediation / log(10))
+```
+
+```{r}
+med_effect <- intermediate::mediation_effect(med_med)
+```
+
+```{r}
+intermediate::ggplot_mediation_effect(med_effect)
 ```
 
 Here is a plot of allele effects adjusted by mediator at this peak position.
