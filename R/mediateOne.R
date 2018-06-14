@@ -1,5 +1,5 @@
 params <- list(
-  target_name = "GLP1_G83_ins_secrete_gm",
+  target_name = "AA_G83_ins_secrete_gm",
   chr_id = "1",
   pos_Mbp = NULL,
   dataSetup = "R/dataJaxMadison.R",
@@ -89,6 +89,28 @@ rm(mrna)
 
 #################################################
 
+if(params$SNPlevels == 3) {
+  genoprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
+  map <- genoprobs$map
+  genoprobs <- genoprobs$probs
+} else {
+  genoprobs <- query_probs(chr = chr_id, start = start, stop = end)
+  map <- genoprobs$map
+  genoprobs <- genoprobs$probs
+}
+
+target_scan <-
+  qtl2::scan1snps(
+    genoprobs = genoprobs[,chr_id],
+    map = map, 
+    pheno = target,
+    kinship = kinship,
+    addcovar = addcovar,
+    chr = chr_id, start = start, end = end,
+    query_func = query_variant,
+    cores = cores,
+    keep_all_snps = FALSE)
+
 out <- list()
 
 for(mediator_id in med_signif) {
@@ -101,18 +123,8 @@ for(mediator_id in med_signif) {
       mrna.annot,
       id == mediator_id)
   
-  # Association mapping for causal models
-  
   # Mediation test on SNPs in peak region.
-  if(params$SNPlevels == 3) {
-    genoprobs <- query_probs(chr = chr_id, start = start, stop = end, allele = FALSE)
-    map <- genoprobs$map
-    genoprobs <- genoprobs$probs
-  } else {
-    genoprobs <- query_probs(chr = chr_id, start = start, stop = end)
-    map <- genoprobs$map
-    genoprobs <- genoprobs$probs
-  }
+  # Association mapping for causal models
   
   out[[mediator_id]] <- 
     intermediate::mediation_qtl2(target,
@@ -120,17 +132,10 @@ for(mediator_id in med_signif) {
                                  annotation, covar, covar, kinship,
                                  genoprobs, map,
                                  drop_lod = 1.5, query_variant,
-                                 cores = 4)
+                                 cores = 4, target_scan)
 }
 
+class(out) <- c("listof_mediation_index", class(out))
 saveRDS(out, 
         file = file.path(resultpath,
                          paste0(target_name, "_", chr_id, "_med_qtl2.rds")))
-#write.csv(
-#  med_index$best %>%
-#    select(-lod) %>%
-#    rename(lod = "LR") %>%
-#    mutate(lod = lod / log(10)),
-#  file = file.path(
-#    resultpath, 
-#    paste0(target_name, "_", chr_id, "_", "_topsnps.csv")))

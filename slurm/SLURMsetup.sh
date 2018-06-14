@@ -19,7 +19,7 @@ cd ~/Documents/Research/rqtl/qtl2rmd/R
 ssh yandell@lunchbox.stat.wisc.edu mkdir /workspace2/yandell/R
 scp *.R yandell@lunchbox.stat.wisc.edu:/workspace2/yandell/R
 
-## Set up R scripts
+## Set up SLURM and BASH scripts
 ## Some of these are slurm scripts; some are bash to run slurm scripts
 ## See for instance medateQtl2.sh for SLURM setup
 cd ~/Documents/Research/rqtl/qtl2rmd/slurm

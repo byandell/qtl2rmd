@@ -1,5 +1,8 @@
 # R/SLURMsetup.R
 
+# srun --pty /bin/bash
+# module load R/R-3.4.4
+
 # Set up R libraries data in /workspace2/yandell/Rlib
 # Run bash on slurm/SLURMsetup.sh to set up data and scripts
 

@@ -1,0 +1,120 @@
+---
+params:
+  target_name:
+    label: Target
+    value: GLP1_G83_ins_secrete_gm
+  chr_id:
+    label: Chromosome
+    value: 1
+  dataSetup:
+    choices:
+    - dataJax.R
+    - dataMadison.R
+    - dataJaxMadison.R
+    input: select
+    label: Data setup file
+    value: dataJaxMadison.R
+  resultpath:
+    input: text
+    label: Path to put CSV results (none if '')
+    value: ../results
+  datapath:
+    input: text
+    label: Path to derived data (required for Madison)
+    value: ../data
+---
+
+---
+title: "Summary for One Target"
+author: "Brian S. Yandell"
+date: "`r  format(Sys.time(), '%d %B %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(ggplot2)
+})
+```
+
+```{r}
+target_name <- params$target_name
+chr_id <- as.character(params$chr_id)
+datapath <- params$datapath
+resultpath <- params$resultpath
+```
+
+Summary of mediators for target `target_name` on chromosome `r chr_id`. These have been run through `intermediate::mediate_qtl2` to get best region for causal inference.
+
+```{r}
+target_index <- 
+  readRDS(
+    file.path(
+      resultpath,
+      target_name,
+      paste0(target_name, "_", chr_id, "_med_qtl2.rds")))
+```
+
+```{r eval=FALSE}
+# See R/mediateOne.R and intermediate::mediation_qtl2 for ts.
+target_index <-
+  purrr::map(
+    target_index,
+    function(x) {
+      x$params$target_LR <- ts$lod[1] * log(10)
+      x$params$target_index <- ts$pos[1]
+      x
+    })
+class(target_index) <- c("listof_mediation_index", class(target_index))
+saveRDS(target_index, 
+        file = file.path(resultpath,
+                         target_name,
+                         paste0(target_name, "_", chr_id, "_med_qtl2.rds")))
+```
+
+```{r}
+intermediate::ggplot_listof_mediation_index(target_index)
+```
+
+```{r}
+plotly::ggplotly(
+  intermediate::ggplot_listof_mediation_index(
+    target_index, "causal"))
+```
+
+```{r}
+plotly::ggplotly(
+  intermediate::ggplot_listof_mediation_index(
+    target_index, "reactive"))
+```
+
+```{r}
+plotly::ggplotly(
+  intermediate::ggplot_listof_mediation_index(
+    target_index, "independent"))
+```
+
+```{r}
+plotly::ggplotly(
+  intermediate::ggplot_listof_mediation_index(
+    target_index, "undecided"))
+```
+
+Best SNPs are output to file `r paste0(target_name, "_", chr_id, "_", "_topsnps.csv")`.
+
+```{r}
+write.csv(
+  intermediate::bind_mediation_index(target_index)$best %>%
+    select(-lod) %>%
+    rename(lod = "LR") %>%
+    mutate(lod = lod / log(10)),
+  file = file.path(
+    resultpath, 
+    target_name,
+    paste0(target_name, "_", chr_id, "_", "_topsnps.csv")))
+```
