@@ -2,7 +2,7 @@
 params:
   target_name:
     label: Target
-    value: AA_G83_ins_secrete_gm
+    value: GLP1_G83_ins_secrete_gm
   chr_id:
     label: Chromosome
     value: 1
@@ -20,11 +20,11 @@ params:
   resultpath:
     input: text
     label: Path to put CSV results (none if '')
-    value: ../results
+    value: ../results/med_qtl2
   datapath:
     input: text
     label: Path to derived data (required for Madison)
-    value: ../data
+    value: ../results/med_qtl2
 ---
 
 ---
@@ -55,12 +55,19 @@ resultpath <- params$resultpath
 Summary of mediators for target `target_name` on chromosome `r chr_id`. These have been run through `intermediate::mediate_qtl2` to get best region for causal inference.
 
 ```{r}
+file_name <- 
+  file.path(
+    datapath,
+    paste0(target_name, "_", chr_id, "_med_qtl2.rds"))
+if(!file.exists(file_name)) {
+  cat("file", file_name, "does not exist\n")
+  knitr::knit_exit()
+}
+```
+
+```{r}
 target_index <- 
-  readRDS(
-    file.path(
-      resultpath,
-      target_name,
-      paste0(target_name, "_", chr_id, "_med_qtl2.rds")))
+  readRDS(file_name)
 ```
 
 ```{r eval=FALSE}
@@ -82,7 +89,7 @@ saveRDS(target_index,
                          paste0(target_name, "_", chr_id, "_med_qtl2.rds")))
 ```
 
-```{r}
+```{r fig.width=12}
 intermediate::ggplot_listof_mediation_index(target_index)
 ```
 
@@ -95,7 +102,7 @@ intermediate::ggplot_listof_mediation_index(target_index)
     1, function(x) sum(x>0)))
 ```
 
-```{r}
+```{r fig.width=12}
 i <- names(calls[1]) # "causal"
 if(calls[i]) {
   p <- intermediate::ggplot_listof_mediation_index(
@@ -105,7 +112,7 @@ if(calls[i]) {
 }
 ```
 
-```{r}
+```{r fig.width=12}
 i <- names(calls[2]) # reactive
 if(calls[i]) {
   intermediate::ggplot_listof_mediation_index(
@@ -113,7 +120,7 @@ if(calls[i]) {
 }
 ```
 
-```{r}
+```{r fig.width=12}
 i <- names(calls[3]) # independent
 if(calls[i]) {
   intermediate::ggplot_listof_mediation_index(
@@ -121,7 +128,7 @@ if(calls[i]) {
 }
 ```
 
-```{r}
+```{r fig.width=12}
 i <- names(calls[4]) # undecided
 if(calls[i]) {
   intermediate::ggplot_listof_mediation_index(
@@ -129,16 +136,24 @@ if(calls[i]) {
 }
 ```
 
-Best SNPs are output to file `r paste0(target_name, "_", chr_id, "_", "_topsnps.csv")`.
+Best SNPs are output to file `r paste0(target_name, "_", chr_id, "_", "_topsnps.csv")`. One line per distinct 
 
 ```{r}
 write.csv(
   intermediate::bind_mediation_index(target_index)$best %>%
+    filter(triad == "causal") %>%
     select(-lod) %>%
     rename(lod = "LR") %>%
-    mutate(lod = lod / log(10)),
+    mutate(lod = lod / log(10),
+           IC = IC / log(10)) %>%
+  group_by(mediator_id, symbol, pvalue, sdp, lod, df, IC) %>%
+  summarize(snp_id = ifelse(n() == 1, snp_id, paste0("snp_ct_", n())),
+            pos_start = pos[1],
+            pos_end = pos[n()],
+            ensembl_gene = paste(unique(ensembl_gene), collapse = ","),
+            consequence = paste(unique(consequence), collapse = ",")) %>%
+  ungroup,
   file = file.path(
     resultpath, 
-    target_name,
     paste0(target_name, "_", chr_id, "_", "_topsnps.csv")))
 ```
