@@ -136,7 +136,7 @@ for(mediator_id in med_signif) {
                                  cores = 4, target_scan)
 }
 
-class(out) <- c("listof_mediation_index", class(out))
+class(out) <- c("listof_mediation_qtl2", class(out))
 saveRDS(out, 
         file = file.path(resultpath,
                          paste0(target_name, "_", chr_id, "_med_qtl2.rds")))

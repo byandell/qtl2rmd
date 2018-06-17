@@ -138,6 +138,10 @@ if(calls[i]) {
 
 Best SNPs are output to file `r paste0(target_name, "_", chr_id, "_", "_topsnps.csv")`. One line per distinct 
 
+**Want to incorporate this into mediation_qtl2 and probably have a plot method that has lines for the `snp_ct_n` stuff. Then we will have smaller objects saved, etc.**
+
+**Got stuff in mediation_qtl2. Need to refactor data. Need to migrate listof_... to mediation_qtl2.**
+
 ```{r}
 write.csv(
   intermediate::bind_mediation_index(target_index)$best %>%
