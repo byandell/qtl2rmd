@@ -8,7 +8,7 @@ params:
     value: 1
   minpvalue:
     label: Minimum p-value
-    value: 0.05
+    value: 0.01
   dataSetup:
     choices:
     - dataJax.R
@@ -52,7 +52,7 @@ datapath <- params$datapath
 resultpath <- params$resultpath
 ```
 
-Summary of mediators for target `target_name` on chromosome `r chr_id`. These have been run through `intermediate::mediate_qtl2` to get best region for causal inference.
+Summary of mediators for target `r target_name` on chromosome `r chr_id` with p-value below `r params$minpvalue`. These have been run through `intermediate::mediate_qtl2` to get best region for causal inference.
 
 ```{r}
 file_name <- 
@@ -82,15 +82,14 @@ target_index <-
       if(!is.na(m)) names(x$best)[m] <- "driver_names"
       x
     })
-class(target_index) <- c("listof_mediation_index", class(target_index))
+class(target_index) <- c("listof_mediation_qtl2", class(target_index))
 saveRDS(target_index, 
-        file = file.path(resultpath,
-                         target_name,
+        file = file.path(datapath,
                          paste0(target_name, "_", chr_id, "_med_qtl2.rds")))
 ```
 
 ```{r fig.width=12}
-intermediate::ggplot_listof_mediation_index(target_index)
+intermediate::ggplot_listof_mediation_qtl2(target_index)
 ```
 
 ```{r}
@@ -105,7 +104,7 @@ intermediate::ggplot_listof_mediation_index(target_index)
 ```{r fig.width=12}
 i <- names(calls[1]) # "causal"
 if(calls[i]) {
-  p <- intermediate::ggplot_listof_mediation_index(
+  p <- intermediate::ggplot_listof_mediation_qtl2(
     target_index, i, params$minpvalue)
   if(!is.null(p))
     plotly::ggplotly(p)
@@ -115,7 +114,7 @@ if(calls[i]) {
 ```{r fig.width=12}
 i <- names(calls[2]) # reactive
 if(calls[i]) {
-  intermediate::ggplot_listof_mediation_index(
+  intermediate::ggplot_listof_mediation_qtl2(
     target_index, i, params$minpvalue)
 }
 ```
@@ -123,7 +122,7 @@ if(calls[i]) {
 ```{r fig.width=12}
 i <- names(calls[3]) # independent
 if(calls[i]) {
-  intermediate::ggplot_listof_mediation_index(
+  intermediate::ggplot_listof_mediation_qtl2(
     target_index, i, params$minpvalue)
 }
 ```
@@ -131,16 +130,12 @@ if(calls[i]) {
 ```{r fig.width=12}
 i <- names(calls[4]) # undecided
 if(calls[i]) {
-  intermediate::ggplot_listof_mediation_index(
+  intermediate::ggplot_listof_mediation_qtl2(
     target_index, i, params$minpvalue)
 }
 ```
 
-Best SNPs are output to file `r paste0(target_name, "_", chr_id, "_", "_topsnps.csv")`. One line per distinct 
-
-**Want to incorporate this into mediation_qtl2 and probably have a plot method that has lines for the `snp_ct_n` stuff. Then we will have smaller objects saved, etc.**
-
-**Got stuff in mediation_qtl2. Need to refactor data. Need to migrate listof_... to mediation_qtl2.**
+Best SNPs are output to file `r paste0(target_name, "_", chr_id, "_", "_topsnps.csv")`. One line per distinct `sdp` and `lod` values.
 
 ```{r}
 write.csv(
@@ -149,15 +144,8 @@ write.csv(
     select(-lod) %>%
     rename(lod = "LR") %>%
     mutate(lod = lod / log(10),
-           IC = IC / log(10)) %>%
-  group_by(mediator_id, symbol, pvalue, sdp, lod, df, IC) %>%
-  summarize(snp_id = ifelse(n() == 1, snp_id, paste0("snp_ct_", n())),
-            pos_start = pos[1],
-            pos_end = pos[n()],
-            ensembl_gene = paste(unique(ensembl_gene), collapse = ","),
-            consequence = paste(unique(consequence), collapse = ",")) %>%
-  ungroup,
+           IC = IC / log(10)),
   file = file.path(
     resultpath, 
-    paste0(target_name, "_", chr_id, "_", "_topsnps.csv")))
+    paste0(target_name, "_", chr_id, "_", "_med_qtl2_topsnps.csv")))
 ```
