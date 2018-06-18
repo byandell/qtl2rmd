@@ -1,0 +1,124 @@
+---
+params:
+  minpvalue:
+    label: Minimum p-value
+    value: 0.01
+  resultpath:
+    input: text
+    label: Path to put CSV results (none if '')
+    value: ../results/med_qtl2
+  datapath:
+    input: text
+    label: Path to derived data (required for Madison)
+    value: ../results/med_qtl2
+---
+
+---
+title: Summary for Target `r params$target_name` Chr `r params$chr_id`
+author: "Brian S. Yandell"
+date: "`r  format(Sys.time(), '%d %B %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(ggplot2)
+})
+```
+
+```{r}
+datapath <- params$datapath
+resultpath <- params$resultpath
+```
+
+```{r}
+targets <- read.table("../data/exvivo_peak_summary.txt", stringsAsFactors = FALSE,
+                      header = TRUE, fill = TRUE)
+```
+
+```{r}
+tmpfn <- function(group) {
+  wh <- which(!is.na(group))
+  ct <- diff(c(wh, length(group) + 1))
+  rep(group[wh], ct)
+}
+targets$QTL = tmpfn(targets$QTL)
+```
+
+
+```{r}
+targets_index <- list()
+noti <- 1 + c(24,31,32,38,43,44)
+ii <- seq_len(nrow(targets))
+ii <- ii[-noti]
+for(i in ii) {
+  target_name <- targets$lodcolumn[i]
+  chr_id <- targets$chr[i]
+  QTL = targets$QTL[i]
+  cat(target_name, chr_id, QTL, "run analysis\n",
+      file = stderr())
+  
+  file_name <- 
+    file.path(
+      datapath,
+      paste0(target_name, "_", chr_id, "_med_qtl2.rds"))
+  if(!file.exists(file_name)) {
+    cat(i, "file", file_name, "does not exist\n")
+  } else {
+    target_index <- 
+      intermediate::bind_mediation_index(readRDS(file_name))
+    target_index$best <- target_index$best %>%
+      filter(triad == "causal") %>%
+      group_by(mediator_id) %>%
+      filter(pvalue == min(pvalue)) %>%
+      ungroup
+    target_index$joint <- target_index$fit <- NULL
+    target_index$driver_names <- target_index$fitsLR <- NULL
+
+    targets_index[[paste(target_name, chr_id, QTL, sep = "_")]] <- target_index
+  }
+}
+class(targets_index) <- c("listof_mediation_qtl2", class(targets_index))
+```
+
+```{r}
+targets_index <- intermediate::bind_mediation_index(targets_index, "target_chr_QTL")
+targets_index$best <- 
+  dplyr::filter(targets_index$best, pvalue <= params$minpvalue)
+```
+
+```{r fig.width=12}
+for(i in unique(targets$QTL)) {
+  tmp <- targets_index
+  tmp$params$target_index <- unique((targets %>% filter(QTL == i))$pos)
+  tmp$best <- 
+    dplyr::filter(
+      tmp$best, 
+      stringr::str_extract(
+        target_chr_QTL,
+        "_[0-9]+$") == paste0("_", i))
+  if(nrow(tmp$best)) {
+    print(
+      intermediate::ggplot_mediation_qtl2(tmp) +
+        ggplot2::ggtitle(paste("QTL", i, "by pattern")))
+    print(
+      intermediate::ggplot_mediation_qtl2(tmp,
+                                          pattern_name = "symbol") +
+        ggplot2::ggtitle(paste("QTL", i, "by mediator")))
+    print(
+      intermediate::ggplot_mediation_qtl2(tmp,
+                                          pattern_name = "target_chr_QTL") +
+        ggplot2::ggtitle(paste("QTL", i, "by target_chr_QTL")))
+  }
+}
+```
+
