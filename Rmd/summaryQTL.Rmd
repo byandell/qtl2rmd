@@ -1,21 +1,23 @@
 ---
-output: pdf_document
 params:
-  datapath:
-    input: text
-    label: Path to derived data (required for Madison)
-    value: ../results/med_qtl2
   minpvalue:
     label: Minimum p-value
     value: 0.01
+  QTL:
+    label: QTL number
+    value: 25
   resultpath:
     input: text
     label: Path to put CSV results (none if '')
     value: ../results/med_qtl2
+  datapath:
+    input: text
+    label: Path to derived data (required for Madison)
+    value: ../results/med_qtl2
 ---
 
 ---
-title: Summary for Target `r params$target_name` Chr `r params$chr_id`
+title: Interactive plots for QTL `r params$QTL`
 author: "Brian S. Yandell"
 date: "`r  format(Sys.time(), '%d %B %Y')`"
 output: html_document
@@ -58,7 +60,7 @@ targets$QTL = tmpfn(targets$QTL)
 
 ```{r}
 targets_index <- list()
-ii <- seq_len(nrow(targets))
+ii <- which(targets$QTL == params$QTL)
 for(i in ii) {
   target_name <- targets$lodcolumn[i]
   chr_id <- targets$chr[i]
@@ -95,45 +97,34 @@ targets_index$best <-
   dplyr::filter(targets_index$best, pvalue <= params$minpvalue)
 ```
 
-```{r fig.width=12}
-for(i in unique(targets$QTL)) {
-  tmp <- targets_index
-  targeti <- targets %>% filter(QTL == i)
-  tmp$params$target_index <- unique(targeti$pos)
-  tmp$best <- 
-    dplyr::filter(
-      tmp$best, 
-      stringr::str_extract(
-        target_chr_QTL,
-        "_[0-9]+$") == paste0("_", i))
-  if(nrow(tmp$best)) {
-    front <- paste("chr", targeti$chr[1], "QTL", i)
-    cat(front, "\n", file = stderr())
-    print(
-      intermediate::ggplot_mediation_qtl2(tmp) +
-        ggplot2::ggtitle(paste(front, "by pattern")))
-    print(
-      intermediate::ggplot_mediation_qtl2(tmp,
-                                          pattern_name = "symbol") +
-        ggplot2::ggtitle(paste(front, "by mediator")))
-    print(
-      intermediate::ggplot_mediation_qtl2(tmp,
+```{r fig.width = 12}
+targets_index$params$target_index <- unique(targets[ii, "pos"])
+front <- paste("chr", targets[ii[1], "chr"], "QTL", params$QTL)
+if(nrow(targets_index$best)) {
+  if(nrow(targets_index$best) > 2) {
+    plotly::ggplotly(intermediate::ggplot_mediation_qtl2(targets_index,
                                           pattern_name = "target_chr_QTL") +
-        ggplot2::ggtitle(paste(front, "by target_chr_QTL")))
+        ggplot2::ggtitle(paste(front, "by target")))
+  } else {
+    cat("too few data to plot\n")
   }
+} else {
+  cat("too few data to plot\n")
 }
 ```
 
-```{r}
-write.csv(
-  targets_index$best %>%
-    filter(triad == "causal") %>%
-    select(-lod) %>%
-    rename(lod = "LR") %>%
-    mutate(lod = lod / log(10),
-           IC = IC / log(10)),
-  file = file.path(
-    resultpath, 
-    paste0("summaryAll.csv")))
+```{r fig.width = 12}
+targets_index$params$target_index <- unique(targets[ii, "pos"])
+front <- paste("chr", targets[ii[1], "chr"], "QTL", params$QTL)
+if(nrow(targets_index$best)) {
+  if(nrow(targets_index$best) > 2) {
+    plotly::ggplotly(intermediate::ggplot_mediation_qtl2(targets_index,
+                                          pattern_name = "symbol") +
+        ggplot2::ggtitle(paste(front, "by symbol")))
+  } else {
+    cat("too few data to plot\n")
+  }
+} else {
+  cat("too few data to plot\n")
+}
 ```
-

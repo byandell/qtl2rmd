@@ -1,0 +1,22 @@
+---
+title: "ReadMe"
+author: "Brian S. Yandell"
+date: "6/19/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This box folder [Mediation/results/med_qtl2](https://uwmadison.app.box.com/folder/50485619268) has analyses of the 60 `target`-`chr` combinations that fall into 30 `QTL` loci across the genome. For each `target` and `chr`, a region of 10Mb around the pre-determined LOD peak is determined. Within that region, all mRNA that have both genes and significant LOD peaks in that region are identified as potential `mediator`'s. The `target` is then mapped using SNP association (additive model) to determine the top SNP distribution patterns (`sdp`'s) -- that is, the `sdp` values that have the highest LODs (within 1.5 of the peak SNP association LOD). At this point, we have the region, the potential `mediator`'s and the most likely `sdp`'s. 
+
+For every combination of `target`, `mediator` and `sdp`, the joint LOD of `target` and `mediator` is computed across the `chr` region. All SNPs that have joint LOD within 1.5 of the peak joint LOD are then analyzed using causal model selection tests (Chaibub Neto et al. 2013).
+The `driver` is chosen as the SNP genotype probability for each map position across the region. That is, causal tests are scanned across the sub-region of highest joint LOD of `target` and `mediator`
+
+Results are compiled for in `csv` and `pdf` files for each `target`-`chr` combination (see respective folders). The PDF show plots of `-log10(pvalue)` against position identified by `mediator` and `sdp` pattern. Plots show `pvalue`'s smaller than 0.05.
+
+Summary files show summaries of the most significant causal SNPs. The CSV file (`summaryAll.csv`) has all best SNPs in one file that have `pvalue` at most 0.01. The PDF file (`summaryAll.pdf`) has plots of `-log(pvalue)` by `pattern`, `mediator` and `target` for each of the 30 `QTL`s. For those `QTL`s with sufficient number of significant SNPs, an interactive `plotly` graph by `target` and `mediator` is saved in an HTML file (see folder `plotly`).

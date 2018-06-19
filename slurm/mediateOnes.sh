@@ -2,8 +2,9 @@
 #SBATCH --mail-type=ALL # send us an email about all events
 #SBATCH --mail-user=brian.yandell@wisc.edu
 #SBATCH -p short
-#SBATCH -t 1:00:00
-#SBATCH --array=0-59
+#SBATCH -t 1:59:00
+#SBATCH --array=0:59
+# SBATCH --array=24,31,32,38,43,44
 #SBATCH --mem-per-cpu=500M
 #SBATCH --cpus-per-task=4
 #SBATCH -n 1

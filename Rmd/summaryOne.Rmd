@@ -2,21 +2,13 @@
 params:
   target_name:
     label: Target
-    value: GLP1_G83_ins_secrete_gm
+    value: KCl_G33_ins_secrete_gm_adj_G33
   chr_id:
     label: Chromosome
-    value: 1
+    value: 4
   minpvalue:
     label: Minimum p-value
     value: 0.01
-  dataSetup:
-    choices:
-    - dataJax.R
-    - dataMadison.R
-    - dataJaxMadison.R
-    input: select
-    label: Data setup file
-    value: dataJaxMadison.R
   resultpath:
     input: text
     label: Path to put CSV results (none if '')
@@ -31,11 +23,15 @@ params:
 title: Summary for Target `r params$target_name` Chr `r params$chr_id`
 author: "Brian S. Yandell"
 date: "`r  format(Sys.time(), '%d %B %Y')`"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE, message=FALSE, warning=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
 ```
 
 ```{r}
@@ -104,10 +100,8 @@ intermediate::ggplot_listof_mediation_qtl2(target_index)
 ```{r fig.width=12}
 i <- names(calls[1]) # "causal"
 if(calls[i]) {
-  p <- intermediate::ggplot_listof_mediation_qtl2(
+  intermediate::ggplot_listof_mediation_qtl2(
     target_index, i, params$minpvalue)
-  if(!is.null(p))
-    plotly::ggplotly(p)
 }
 ```
 

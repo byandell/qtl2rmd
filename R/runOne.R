@@ -9,7 +9,8 @@ if(interactive() & !doBatch) {
 
 # Preset output format and filename.
 # Only HTML enables plotly use.
-out_format <- "html_document"
+if(!exists("out_format"))
+  out_format <- "html_document"
 
 # Render document
 rmarkdown::render(
