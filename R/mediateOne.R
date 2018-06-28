@@ -1,5 +1,5 @@
 params <- list(
-  target_name = "AA_G83_ins_secrete_gm",
+  target_name = "GLP1_G83_ins_secrete_gm",
   chr_id = "1",
   pos_Mbp = NULL,
   dataSetup = "R/dataJaxMadison.R",
@@ -17,6 +17,9 @@ for(i in names(params)) {
   if(exists(i))
     params[[i]] <- get(i)
 }
+
+if(!exists("model_subset"))
+  model_subset <- c("causal", "reactive", "independent", "undecided")
 
 target_name <- params$target_name
 chr_id <- as.character(params$chr_id)
@@ -114,6 +117,7 @@ target_scan <-
 out <- list()
 
 for(mediator_id in med_signif) {
+  #mediator_id <- "ENSMUSG00000026126"
   mediator_name <- (mrna.annot %>% filter(id == mediator_id))$symbol
   cat(mediator_id, mediator_name, "\n", file = stderr())
 
@@ -133,7 +137,8 @@ for(mediator_id in med_signif) {
                                  genoprobs, map,
                                  drop_lod = 1.5, min_lod = 3,
                                  query_variant,
-                                 cores = 4, target_scan)
+                                 cores = 4, target_scan,
+                                 model_subset = model_subset)
 }
 
 class(out) <- c("listof_mediation_qtl2", class(out))

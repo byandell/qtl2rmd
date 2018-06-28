@@ -87,8 +87,8 @@ rm(mrna)
 
 cat("Mediation with allele probs\n", file = stderr())
 
-mrna.annot$driver <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
-driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver), drop = FALSE]
+mrna.annot$driver_names <- qtl2::find_marker(map, chr_id, mrna.annot$qtl_pos)
+driver_med <- genoprobs[[chr_id]][,,unique(mrna.annot$driver_names), drop = FALSE]
 
 target <- pheno_data
 mediator <- mrna.expr
@@ -97,7 +97,7 @@ if(simMediate) {
   cat("simulate by shuffling residuals\n", file = stderr())
   source("R/shuffleQtl2.R")
   target <- shuffleQtl2(driver_tar, target, kinship, covar)
-  mediator <- shuffleQtl2M(driver_med, mediator, kinship, covar, mrna.annot$driver)
+  mediator <- shuffleQtl2M(driver_med, mediator, kinship, covar, mrna.annot$driver_names)
 }
 
 med_test <- intermediate::mediation_test(
@@ -217,7 +217,7 @@ ts_med <- ts_med %>%
 peak_snp <- ts$snp_id[1]
 
 m <- match(mrna.annot$id, ts_med$pheno)
-mrna.annot$driver <- ts_med$snp_id[m]
+mrna.annot$driver_names <- ts_med$snp_id[m]
 tmp <- qtl2::genoprob_to_snpprob(genoprobs, assoc_ins$snpinfo)
 driver_tar_snp <- tmp[[chr_id]][,, peak_snp]
 driver_med_snp <- tmp[[chr_id]][,, unique(ts_med$snp_id), drop = FALSE]
@@ -229,7 +229,7 @@ if(simMediate) {
   cat("simulate by shuffling residuals\n", file = stderr())
   source("R/shuffleQtl2.R")
   target <- shuffleQtl2(driver_tar_snp, target, kinship, covar)
-  mediator <- shuffleQtl2M(driver_med_snp, mediator, kinship, covar, mrna.annot$driver)
+  mediator <- shuffleQtl2M(driver_med_snp, mediator, kinship, covar, mrna.annot$driver_names)
 }
 
 med2_test <- intermediate::mediation_test(

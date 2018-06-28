@@ -15,12 +15,12 @@ params:
     value: coef
   dataSetup:
     choices:
-    - dataJax.R
-    - dataMadison.R
-    - dataJaxMadison.R
+    - ../R/dataJax.R
+    - ../R/dataMadison.R
+    - ../R/dataJaxMadison.R
     input: select
     label: Data setup file
-    value: dataJaxMadison.R
+    value: ../R/dataJaxMadison.R
   docTitle:
     label: Document title
     value: Mediation Scan
@@ -49,7 +49,7 @@ params:
   datapath:
     input: text
     label: Path to derived data (required for Madison)
-    value: ..
+    value: ../data
   showPeaks:
     label: Show highest peaks (0=no, n=number to show)
     value: 0
@@ -146,10 +146,13 @@ map <- query_probs()$map
 ```
 
 ```{r}
-(peaks <- readxl::read_excel("local/Jax/Ex vivo peak summary with QTL count[1].xlsx",
-                            col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
-  dplyr::filter(lodcolumn == target_name,
-                chr == chr_id))
+(peaks <- 
+   readxl::read_excel(
+     file.path(
+       datapath, 
+       "Ex vivo peak summary with QTL count[1].xlsx"),
+     col_types = c(rep("text", 2), rep("numeric", 12), "text")) %>%
+   dplyr::filter(lodcolumn == target_name, chr == chr_id))
 ```
 
 ```{r}
@@ -418,8 +421,11 @@ autoplot(med2_test)
 
 ```{r}
 if(resultpath != "")
-  write.csv(sum_med2, file = file.path(params$resultpath,
-                                       paste0(target_name, "_", chr_id, "_mediation_snp.csv")))
+  write.csv(
+    sum_med2, 
+    file = file.path(
+      params$resultpath,
+      paste0(target_name, "_", chr_id, "_mediation_snp.csv"))))
 ```
 
 ```{r med2_triad,fig.width=9,fig.height=6}
